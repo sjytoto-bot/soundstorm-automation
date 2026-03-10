@@ -619,8 +619,81 @@ def main():
     except Exception as e:
         print(f"  ⚠️ Channel_KPI 전송 실패 (전체 실행 영향 없음): {e}")
 
-    print(f"🔗 https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}")
-    print("\n🎉 [최종 성공] SOUNDSTORM 자동수집 시스템이 모든 작업을 성공적으로 마쳤습니다!"
-)
+    # ================================================================
+    # [Analytics Aggregation] 4개의 기간별 집계 시트 생성 (대시보드 KPI 용)
+    # ================================================================
+    print("\n📊 [Analytics Aggregation] 기간별 집계 데이터(7d, 30d, prev30, all) 생성 및 갱신 중...")
+    
+    aggr_dates = [
+        ('Analytics_7d', end_dt_kpi - timedelta(days=7), end_dt_kpi),
+        ('Analytics_30d', end_dt_kpi - timedelta(days=30), end_dt_kpi),
+        ('Analytics_prev30', end_dt_kpi - timedelta(days=60), end_dt_kpi - timedelta(days=30)),
+        ('Analytics_all', datetime.strptime('2020-01-01', '%Y-%m-%d'), end_dt_kpi)
+    ]
+    
+    master_vids = {row['video_id']: row['youtube_title'] for row in master_rows}
+    AGGR_COLS = ['type', 'key', 'views', 'likes', 'watch_time_min', 'avg_duration_sec', 'subscriber_change', 'ratio', 'rank', 'title']
+    
+    for sheet_name, s_dt, e_dt in aggr_dates:
+        try:
+            str_s_dt = s_dt.strftime('%Y-%m-%d')
+            str_e_dt = e_dt.strftime('%Y-%m-%d')
+            agg_rows = []
+            
+            # SUMMARY Rows
+            sum_resp = analytics.reports().query(
+                ids='channel==mine',
+                startDate=str_s_dt, endDate=str_e_dt,
+                metrics='views,likes,estimatedMinutesWatched,averageViewDuration,subscribersGained'
+            ).execute()
+            
+            sum_row = {'type': 'SUMMARY', 'key': 'total', 'views': 0, 'likes': 0, 'watch_time_min': 0, 'avg_duration_sec': 0, 'subscriber_change': 0, 'ratio': '', 'rank': '', 'title': 'SUMMARY'}
+            if sum_resp.get('rows'):
+                hmap = {h['name']: i for i, h in enumerate(sum_resp.get('columnHeaders', []))}
+                r = sum_resp['rows'][0]
+                sum_row['views'] = int(r[hmap['views']]) if 'views' in hmap else 0
+                sum_row['likes'] = int(r[hmap['likes']]) if 'likes' in hmap else 0
+                sum_row['watch_time_min'] = int(r[hmap['estimatedMinutesWatched']]) if 'estimatedMinutesWatched' in hmap else 0
+                sum_row['avg_duration_sec'] = int(r[hmap['averageViewDuration']]) if 'averageViewDuration' in hmap else 0
+                sum_row['subscriber_change'] = int(r[hmap['subscribersGained']]) if 'subscribersGained' in hmap else 0
+            agg_rows.append(sum_row)
+            
+            # VIDEO Rows (Top 10 sorted by views)
+            vid_resp = analytics.reports().query(
+                ids='channel==mine',
+                startDate=str_s_dt, endDate=str_e_dt,
+                dimensions='video',
+                metrics='views,likes,estimatedMinutesWatched,averageViewDuration,subscribersGained',
+                sort='-views', maxResults=10
+            ).execute()
+            
+            if vid_resp.get('rows'):
+                hmap = {h['name']: i for i, h in enumerate(vid_resp.get('columnHeaders', []))}
+                for rank, r in enumerate(vid_resp['rows'], start=1):
+                    vid = r[hmap['video']]
+                    v_row = {'type': 'VIDEO', 'key': vid, 'ratio': '', 'rank': rank}
+                    v_row['views'] = int(r[hmap['views']]) if 'views' in hmap else 0
+                    v_row['likes'] = int(r[hmap['likes']]) if 'likes' in hmap else 0
+                    v_row['watch_time_min'] = int(r[hmap['estimatedMinutesWatched']]) if 'estimatedMinutesWatched' in hmap else 0
+                    v_row['avg_duration_sec'] = int(r[hmap['averageViewDuration']]) if 'averageViewDuration' in hmap else 0
+                    v_row['subscriber_change'] = int(r[hmap['subscribersGained']]) if 'subscribersGained' in hmap else 0
+                    v_row['title'] = master_vids.get(vid, vid)
+                    agg_rows.append(v_row)
+            
+            # Write to specific Analytics sheet
+            df_agg = pd.DataFrame(agg_rows).reindex(columns=AGGR_COLS).fillna('')
+            try:
+                ws_agg = ss.worksheet(sheet_name)
+            except gspread.exceptions.WorksheetNotFound:
+                ws_agg = ss.add_worksheet(sheet_name, 100, len(AGGR_COLS))
+                
+            ws_agg.clear()
+            ws_agg.update([df_agg.columns.tolist()] + df_agg.values.tolist())
+            print(f"  ✅ {sheet_name} 갱신 완료 ({len(df_agg)}행)")
+        except Exception as e:
+            print(f"  ⚠️ {sheet_name} 갱신 실패: {e}")
+
+    print(f"\n🔗 https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}")
+    print("\n🎉 [최종 성공] SOUNDSTORM 자동수집 시스템이 모든 작업을 성공적으로 마쳤습니다!")
 if __name__ == '__main__':
     main()
