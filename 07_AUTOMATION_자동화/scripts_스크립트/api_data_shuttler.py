@@ -207,11 +207,22 @@ def main():
                 print(f"[Analytics Skip] {vid}: {e}")
 
             # 러닝타임 파싱 (PT1M30S -> sec)
-            # import isodate  <-- 상단으로 이동됨
             duration = isodate.parse_duration(content['duration']).total_seconds()
             
             # [v10.0] 제목 정규화 (최소한의 공백 제거)
             clean_title = snippet['title'].strip()
+
+            # [v15.3] 썸네일 URL 추출 로직 (Fallback 포함)
+            thumbs = snippet.get('thumbnails', {})
+            thumbnail_url = (
+                thumbs.get('maxres', {}).get('url') or
+                thumbs.get('high', {}).get('url') or
+                thumbs.get('medium', {}).get('url') or
+                thumbs.get('default', {}).get('url') or
+                ''
+            )
+            if not thumbnail_url:
+                print(f"  ⚠ 썸네일 누락: {vid}")
 
             master_rows.append({
                 'product_id': "", # [v12.8] 상품ID는 절대 자동 생성 금지 (Manual Shield 적용)
@@ -227,7 +238,8 @@ def main():
                 'subscribers_gained': analytics_data.get('subs', 0),
                 'shares': analytics_data.get('shares', 0),
                 'youtube_title': snippet['title'],
-                'data_fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'data_fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                '썸네일URL': thumbnail_url
             })
             print(f".", end='', flush=True)
 
@@ -415,21 +427,38 @@ def main():
     # Update _RawData_Master
     df_master = pd.DataFrame(master_rows)
     
-    # [v10.3] 누락 컬럼 기본값 일괄 적용
+    # [v15.3] 옵션 A (권장): 헤더 기반 write 로직으로 변경 (기존 시트 헤더 존중)
+    try:
+        ws_master = ss.worksheet('_RawData_Master')
+        existing_headers = ws_master.row_values(1)
+        if not existing_headers:
+            existing_headers = list(COLUMN_DEFAULTS.keys()) + ['썸네일URL']
+    except gspread.exceptions.WorksheetNotFound:
+        ws_master = ss.add_worksheet('_RawData_Master', 1000, 30)
+        existing_headers = list(COLUMN_DEFAULTS.keys()) + ['썸네일URL']
+
+    # 1) 기본값 적용
     for col, default in COLUMN_DEFAULTS.items():
         if col not in df_master.columns:
             df_master[col] = default
             
-    df_master = df_master.reindex(columns=MASTER_COLUMNS).fillna(0)
+    # 2) 시트의 기존 헤더 중 df_master에 없는 컬럼이 있다면 빈 값으로 추가하여 구조 보존
+    for col in existing_headers:
+        if col not in df_master.columns:
+            df_master[col] = ""
+
+    # 3) df_master에만 존재하는 새 컬럼이 있다면 existing_headers에 추가
+    for col in df_master.columns:
+        if col not in existing_headers:
+            existing_headers.append(col)
+            
+    # 4) 실제 기록될 데이터프레임을 시트 헤더 순서와 정확하게 정렬
+    df_master = df_master.reindex(columns=existing_headers).fillna("")
     
-    try:
-        ws_master = ss.worksheet('_RawData_Master')
-        ws_master.clear() # [v12.1] resize(1) 대신 안전한 초기화 방식 채택
-    except gspread.exceptions.WorksheetNotFound:
-        ws_master = ss.add_worksheet('_RawData_Master', 1000, 20)
+    ws_master.clear() # 전체 값 안전 초기화 후 정렬된 df 통째로 덮어쓰기
     
     print(f"📌 [Master] 시트 Write 직전 데이터 행 수: {len(df_master)}행")
-    ws_master.update([df_master.columns.values.tolist()] + df_master.values.tolist())
+    ws_master.update([df_master.columns.tolist()] + df_master.values.tolist())
     print(f"📤 [Master] 실제 업데이트 완료 로그 출력 (총 {len(df_master)}행)")
     
     # Update _RawData_FullPeriod (Append-Only 구조)
