@@ -15,12 +15,11 @@ from google.oauth2.service_account import Credentials
 from pathlib import Path
 
 # ========== 설정 ==========
-# [v15.1] GitHub Actions 환경 호환을 위한 경로 의존성 제거
-BASE_DIR = os.getcwd()
+# [v15.2] 경로 의존성 제거 - 파일 위치 기준 동적 계산
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 print("🚀 SOUNDSTORM automation starting")
-print(f"📁 Base directory: {BASE_DIR}")
-
-ROOT_DIR = Path(BASE_DIR)
+print(f"📁 Script/Base directory: {BASE_DIR}")
+print(f"🤖 GitHub Actions mode: {bool(os.environ.get('SERVICE_ACCOUNT_B64'))}")
 
 CHANNEL_ID = 'UCAvSo9RLq0rCy64IH2nm91w'
 SPREADSHEET_ID = "12gKS-y-qiMzDNCMpDC-cpfKA1UFa2yPZpD4np3LTR4Y"
@@ -52,11 +51,12 @@ if IS_CI:
     CLIENT_SECRET = str(_ci_dir / 'client_secret.json')
     SPREADSHEET_ID = os.environ.get('GOOGLE_SHEETS_ID', SPREADSHEET_ID)
 else:
-    # 로컬 모드: 기존 파일 경로 사용
-    AUTO_CREDENTIALS_DIR = ROOT_DIR / "07_AUTOMATION_자동화" / "credentials"
-    CREDENTIALS_PATH = str(AUTO_CREDENTIALS_DIR / "service_account.json")
-    TOKEN_PICKLE = str(AUTO_CREDENTIALS_DIR / "token.pickle")
-    CLIENT_SECRET = str(AUTO_CREDENTIALS_DIR / "client_secret.json")
+    # 로컬 모드: 기존 환경 의존을 버리고 스크립트 기준 명시적 상대경로 사용
+    # BASE_DIR은 .../07_AUTOMATION_자동화/scripts_스크립트
+    AUTO_CREDENTIALS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "credentials"))
+    CREDENTIALS_PATH = os.path.join(AUTO_CREDENTIALS_DIR, "service_account.json")
+    TOKEN_PICKLE = os.path.join(AUTO_CREDENTIALS_DIR, "token.pickle")
+    CLIENT_SECRET = os.path.join(AUTO_CREDENTIALS_DIR, "client_secret.json")
 
     # 파일 존재 여부 사전 검증 (로컬 전용)
     for file_path, desc in [
