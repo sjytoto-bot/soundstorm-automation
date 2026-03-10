@@ -678,6 +678,12 @@ def main():
                     v_row['avg_duration_sec'] = int(r[hmap['averageViewDuration']]) if 'averageViewDuration' in hmap else 0
                     v_row['subscriber_change'] = int(r[hmap['subscribersGained']]) if 'subscribersGained' in hmap else 0
                     v_row['title'] = master_vids.get(vid, vid)
+                    
+                    if sum_row.get('views', 0) > 0:
+                        v_row['ratio'] = round(v_row['views'] / sum_row['views'], 4)
+                    else:
+                        v_row['ratio'] = 0
+                        
                     agg_rows.append(v_row)
             
             # Write to specific Analytics sheet
