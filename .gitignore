@@ -1,0 +1,25 @@
+# Google API
+*.json
+*.pickle
+token*
+credentials*
+service_account*
+
+# Python
+__pycache__/
+*.pyc
+
+# Mac
+.DS_Store# Google API secrets
+*.json
+*.pickle
+token*
+credentials*
+service_account*
+
+# Mac
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc

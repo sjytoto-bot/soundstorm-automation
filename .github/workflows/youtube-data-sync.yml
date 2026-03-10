@@ -1,0 +1,38 @@
+name: YouTube Data Sync
+
+on:
+  schedule:
+    # 30분마다 실행 (UTC 기준)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:  # 수동 실행 버튼
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  sync-youtube-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run API Data Shuttler
+        env:
+          # GitHub Secrets → 환경변수 매핑
+          SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
+          CLIENT_SECRET_B64: ${{ secrets.CLIENT_SECRET_B64 }}
+          GOOGLE_TOKEN_B64: ${{ secrets.GOOGLE_TOKEN_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: |
+          python 07_AUTOMATION_자동화/scripts_스크립트/api_data_shuttler.py

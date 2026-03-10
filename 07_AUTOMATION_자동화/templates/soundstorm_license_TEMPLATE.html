@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  SOUNDSTORM 공식 음원 사용 승인서  –  자동 발급 템플릿      ║
+  ║  Engine : WeasyPrint  /  Template : Jinja2                   ║
+  ║  Author : SOUNDSTORM License Management System               ║
+  ║  Variables (모두 필수):                                      ║
+  ║    {{ LICENSE_NUMBER }}   예) SS-LC-2026-0042               ║
+  ║    {{ ISSUE_DATE }}       예) 2026년 02월 23일               ║
+  ║    {{ BUYER_NAME }}       예) 홍길동                         ║
+  ║    {{ TRACK_TITLE }}      예) 토벌 (討伐)                    ║
+  ║    {{ TRACK_ID }}         예) SS014                          ║
+  ║    {{ LICENSE_TYPE }}     "one_time" | "permanent"           ║
+  ║    {{ LOGO_BASE64 }}      PNG base64 문자열 (data URI 제외)  ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOUNDSTORM 음원 사용 승인서 – {{ LICENSE_NUMBER }}</title>
+<style>
+
+/* ══════════════════════════════════════════════════════
+   FONT STACK
+   WeasyPrint 환경: Noto CJK 시스템 폰트 사용
+   폰트 경로가 다를 경우 아래 @font-face 절대경로 수정
+══════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'SerifKR';
+  src: local('Noto Serif CJK KR'),
+       local('NotoSerifCJK-Regular'),
+       url('/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc') format('truetype');
+  font-weight: 400;
+}
+@font-face {
+  font-family: 'SerifKR';
+  src: local('Noto Serif CJK KR Bold'),
+       local('NotoSerifCJK-Bold'),
+       url('/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc') format('truetype');
+  font-weight: 700 900;
+}
+@font-face {
+  font-family: 'SansKR';
+  src: local('Noto Sans CJK KR'),
+       local('NotoSansCJK-Regular'),
+       url('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc') format('truetype');
+  font-weight: 300 400;
+}
+@font-face {
+  font-family: 'SansKR';
+  src: local('Noto Sans CJK KR Bold'),
+       local('NotoSansCJK-Bold'),
+       url('/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc') format('truetype');
+  font-weight: 700;
+}
+
+/* ══════════════════════════════════════════════════════
+   DESIGN TOKENS
+══════════════════════════════════════════════════════ */
+:root {
+  --gold:          #C9A961;
+  --gold-light:    #E2CFA0;
+  --gold-dark:     #7A6535;
+  --black:         #111111;
+  --ink:           #1a1a1a;
+  --ink-soft:      #2a2a2a;
+  --muted:         #666666;
+  --muted-light:   #AAAAAA;
+  --muted-faint:   #CCCCCC;
+  --cream-bg:      #FDFCF7;
+  --cream-border:  #EDE5CC;
+  --warn-bg:       #F9F5EC;
+  --white:         #ffffff;
+}
+
+/* ══════════════════════════════════════════════════════
+   PAGE / RESET
+══════════════════════════════════════════════════════ */
+@page {
+  size: A4 portrait;   /* 210mm × 297mm */
+  margin: 0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'SansKR', 'Noto Sans CJK KR', sans-serif;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 8pt;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ══════════════════════════════════════════════════════
+   PAGE WRAPPER  (재사용 – 1/2페이지 공통)
+══════════════════════════════════════════════════════ */
+.page {
+  width:  210mm;
+  height: 297mm;
+  padding: 16mm 19mm 14mm 19mm;
+  position: relative;
+  background: var(--white);
+  overflow: hidden;
+  page-break-after: always;
+}
+
+/* 이중 골드 외곽 프레임 */
+.page-frame {
+  position: absolute;
+  top: 9mm; left: 9mm; right: 9mm; bottom: 9mm;
+  border: 0.6pt solid var(--gold);
+  pointer-events: none;
+  z-index: 0;
+}
+.page-frame-inner {
+  position: absolute;
+  top: 10.5mm; left: 10.5mm; right: 10.5mm; bottom: 10.5mm;
+  border: 0.2pt solid var(--gold-light);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 워터마크 */
+.watermark {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-28deg);
+  font-size: 58pt;
+  font-weight: 900;
+  color: rgba(0,0,0,0.025);
+  font-family: 'SerifKR', Georgia, serif;
+  letter-spacing: 3px;
+  white-space: nowrap;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 콘텐츠는 프레임 위에 */
+.content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ══════════════════════════════════════════════════════
+   DIVIDERS
+══════════════════════════════════════════════════════ */
+.divider-gold {
+  height: 0.8pt;
+  background: linear-gradient(
+    to right,
+    transparent 0%, var(--gold) 15%, var(--gold) 85%, transparent 100%
+  );
+  margin: 4mm 0;
+}
+.divider-thin {
+  height: 0.3pt;
+  background: linear-gradient(
+    to right,
+    transparent 0%, #D0D0D0 15%, #D0D0D0 85%, transparent 100%
+  );
+  margin: 3.5mm 0;
+}
+
+/* ══════════════════════════════════════════════════════
+   HEADER  (1페이지)
+══════════════════════════════════════════════════════ */
+.header {
+  text-align: center;
+  margin-bottom: 5mm;
+  padding-top: 1mm;
+}
+.logo-wrap img {
+  height: 15mm;
+  opacity: 0.78;
+  display: block;
+  margin: 0 auto 2.5mm auto;
+}
+.brand-name {
+  font-size: 20pt;
+  font-weight: 900;
+  letter-spacing: 2.5px;
+  color: var(--black);
+  font-family: 'SerifKR', Georgia, serif;
+  margin-bottom: 2mm;
+  line-height: 1;
+}
+.doc-title-kr {
+  font-size: 11pt;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 1.5px;
+  margin-bottom: 1.2mm;
+  font-family: 'SerifKR', serif;
+  line-height: 1.3;
+}
+.doc-title-en {
+  font-size: 7pt;
+  font-weight: 400;
+  color: var(--muted-light);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+/* ══════════════════════════════════════════════════════
+   LICENSE INFO BOX
+══════════════════════════════════════════════════════ */
+.license-box {
+  border: 0.7pt solid var(--gold);
+  margin-bottom: 5mm;
+  overflow: hidden;
+  background: var(--cream-bg);
+}
+.license-box-header {
+  background: var(--black);
+  padding: 1.8mm 4mm;
+  font-size: 6.8pt;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 1.5px;
+  text-align: center;
+}
+.license-box table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.license-box tr {
+  border-bottom: 0.3pt solid var(--cream-border);
+}
+.license-box tr:last-child {
+  border-bottom: none;
+}
+.license-box td {
+  padding: 2mm 0;
+  font-size: 8pt;
+  vertical-align: middle;
+  line-height: 1.3;
+}
+.license-box td.label {
+  color: var(--gold-dark);
+  font-weight: 700;
+  width: 32mm;
+  padding-left: 4mm;
+  font-size: 7pt;
+  white-space: nowrap;
+}
+.license-box td.sep {
+  color: var(--gold);
+  width: 5mm;
+  text-align: center;
+  font-size: 8pt;
+}
+.license-box td.value {
+  color: var(--ink);
+  padding-right: 4mm;
+}
+.license-box td.value.mono {
+  font-family: 'Courier New', monospace;
+  font-size: 8pt;
+  letter-spacing: 0.5px;
+  color: #333;
+}
+
+/* 라이선스 번호 강조 */
+.license-no-value {
+  font-family: 'Courier New', monospace;
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--gold);
+}
+
+/* 라이선스 유형 선택 */
+.cb-row {
+  display: flex;
+  gap: 5mm;
+  align-items: center;
+}
+.cb-item {
+  display: flex;
+  align-items: center;
+  gap: 1.5mm;
+  font-size: 7.5pt;
+  white-space: nowrap;
+  color: var(--muted-light);    /* 미선택 기본 */
+}
+.cb-item.selected {
+  color: var(--ink);
+  font-weight: 700;
+}
+.cb-box {
+  width: 3mm; height: 3mm;
+  border: 0.8pt solid var(--muted-faint);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.cb-box.checked {
+  border-color: var(--black);
+  background: var(--black);
+}
+
+/* ══════════════════════════════════════════════════════
+   ARTICLE SECTIONS
+══════════════════════════════════════════════════════ */
+.section {
+  margin-bottom: 3.5mm;
+}
+.section-legal {
+  /* 7. 준거법 – 상단 얇은 분리선 */
+  margin-top: 1.5mm;
+  padding-top: 1mm;
+  border-top: 0.3pt solid #EEEEEE;
+}
+.section-title {
+  font-size: 8.5pt;
+  font-weight: 700;
+  color: var(--black);
+  letter-spacing: 0.3px;
+  margin-bottom: 1.8mm;
+  font-family: 'SerifKR', serif;
+  padding-left: 2.5mm;
+  border-left: 2.5pt solid var(--gold);
+  line-height: 1.4;
+}
+.section-body {
+  font-size: 7.8pt;
+  line-height: 2.0;
+  color: var(--ink-soft);
+  font-weight: 300;
+  padding-left: 5mm;
+}
+.section-body p {
+  margin-bottom: 0.3mm;
+}
+
+/* 계층형 번호 리스트 – flex 방식으로 줄 분리 방지 */
+.sub-list {
+  list-style: none;
+  padding: 0;
+  margin: 1mm 0;
+}
+.sub-list li {
+  display: flex;
+  gap: 2mm;
+  margin-bottom: 0;
+  line-height: 2.0;
+}
+.sub-list li .num {
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 7mm;
+  color: #888888;
+  font-size: 7.5pt;
+  line-height: 2.0;
+}
+.sub-list li .txt {
+  flex: 1;
+  font-size: 7.8pt;
+  line-height: 2.0;
+}
+
+/* 경고 박스 */
+.warning-box {
+  background: var(--warn-bg);
+  border-left: 2pt solid var(--gold);
+  padding: 2mm 3mm;
+  font-size: 7.5pt;
+  color: #444444;
+  margin-top: 1.5mm;
+  line-height: 1.8;
+}
+
+/* ══════════════════════════════════════════════════════
+   FOOTER
+══════════════════════════════════════════════════════ */
+.footer {
+  margin-top: 5mm;
+  border-top: 0.8pt solid var(--gold);
+  padding-top: 4mm;
+}
+.footer-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.issuer-block { flex: 1; }
+.issuer-label {
+  font-size: 6.3pt;
+  color: var(--muted-light);
+  letter-spacing: 1px;
+  margin-bottom: 1mm;
+  text-transform: uppercase;
+}
+.issuer-name {
+  font-size: 13pt;
+  font-weight: 900;
+  font-family: 'SerifKR', Georgia, serif;
+  color: var(--black);
+  letter-spacing: 1.5px;
+  margin-bottom: 1.5mm;
+  line-height: 1;
+}
+.issuer-sub {
+  font-size: 7pt;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.issuer-reg {
+  font-size: 7pt;
+  color: var(--gold);
+  margin-top: 1mm;
+  line-height: 1;
+}
+
+/* QR 영역 */
+.footer-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2mm;
+}
+.qr-box {
+  width: 16mm; height: 16mm;
+  border: 0.5pt dashed #DDDDDD;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 4.5pt;
+  color: var(--muted-faint);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* 하단 인증 문구 */
+.footer-bottom {
+  margin-top: 3mm;
+  text-align: center;
+  border-top: 0.3pt solid #EEEEEE;
+  padding-top: 2.5mm;
+}
+.footer-note {
+  font-size: 6.3pt;
+  color: var(--muted-light);
+  letter-spacing: 0.2px;
+  line-height: 1.7;
+}
+.license-no-footer {
+  font-size: 7pt;
+  color: var(--gold);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 1.5px;
+  margin-top: 1.5mm;
+  line-height: 1;
+}
+
+/* ══════════════════════════════════════════════════════
+   PAGE 2 MINI HEADER
+══════════════════════════════════════════════════════ */
+.page2-header {
+  text-align: center;
+  margin-bottom: 4mm;
+  padding-top: 1mm;
+}
+.page2-brand {
+  font-size: 8.5pt;
+  font-weight: 700;
+  color: var(--muted-light);
+  letter-spacing: 2px;
+  font-family: 'SerifKR', Georgia, serif;
+  margin-bottom: 0.8mm;
+  line-height: 1;
+}
+.page2-doc {
+  font-size: 6.5pt;
+  color: var(--muted-faint);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 1 / 2
+═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-frame"></div>
+  <div class="page-frame-inner"></div>
+  <div class="watermark">SOUNDSTORM</div>
+
+  <div class="content">
+
+    <!-- ── 헤더 ── -->
+    <div class="header">
+      <div class="brand-name">SOUNDSTORM</div>
+      <div class="doc-title-kr">사운드스톰 공식 음원 사용 승인서</div>
+      <div class="doc-title-en">SOUNDSTORM OFFICIAL MUSIC LICENSE CERTIFICATE</div>
+    </div>
+
+    <div class="divider-gold"></div>
+
+    <!-- ── 라이선스 정보 박스 ── -->
+    <div class="license-box">
+      <div class="license-box-header">LICENSE INFORMATION &nbsp;·&nbsp; 라이선스 정보</div>
+      <table>
+        <tr>
+          <td class="label">라이선스 번호</td>
+          <td class="sep">|</td>
+          <td class="value">
+            <span class="license-no-value">{{ LICENSE_NUMBER }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td class="label">발급일자</td>
+          <td class="sep">|</td>
+          <td class="value">{{ ISSUE_DATE }}</td>
+        </tr>
+        <tr>
+          <td class="label">구매자명</td>
+          <td class="sep">|</td>
+          <td class="value">{{ BUYER_NAME }}</td>
+        </tr>
+        <tr>
+          <td class="label">사용 곡명</td>
+          <td class="sep">|</td>
+          <td class="value">{{ TRACK_TITLE }}</td>
+        </tr>
+        <tr>
+          <td class="label">음원 ID</td>
+          <td class="sep">|</td>
+          <td class="value mono">{{ TRACK_ID }}</td>
+        </tr>
+        <tr>
+          <td class="label">라이선스 유형</td>
+          <td class="sep">|</td>
+          <td class="value">
+            <!--
+              {{ LICENSE_TYPE }} 값에 따라 Jinja2에서 클래스 분기:
+                "one_time"  → 일회성 selected/checked, 영구 미선택
+                "permanent" → 영구 selected/checked, 일회성 미선택
+            -->
+            <div class="cb-row">
+              <span class="cb-item{% if LICENSE_TYPE == 'one_time' %} selected{% endif %}">
+                <span class="cb-box{% if LICENSE_TYPE == 'one_time' %} checked{% endif %}"></span>
+                일회성 공연 라이선스
+              </span>
+              <span class="cb-item{% if LICENSE_TYPE == 'permanent' %} selected{% endif %}">
+                <span class="cb-box{% if LICENSE_TYPE == 'permanent' %} checked{% endif %}"></span>
+                영구 공연 라이선스
+              </span>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ── 1. 권리 부여 ── -->
+    <div class="section">
+      <div class="section-title">1. 권리 부여</div>
+      <div class="section-body">
+        <p>본 승인서는 SOUNDSTORM(이하 "사운드스톰")이 발행하는 공식 음원 사용 승인 문서입니다.</p>
+        <p>사운드스톰은 본 문서에 명시된 구매자에게 해당 음원에 대한 비독점적이며 양도 불가한 공연 사용 권리를 부여합니다.</p>
+        <p>본 라이선스는 음원의 소유권, 저작권, 마스터 권리의 이전을 의미하지 않습니다.</p>
+      </div>
+    </div>
+
+    <div class="divider-thin"></div>
+
+    <!-- ── 2. 허용 범위 ── -->
+    <div class="section">
+      <div class="section-title">2. 허용 범위</div>
+      <div class="section-body">
+        <p>구매자는 다음 범위 내에서 음원을 사용할 수 있습니다.</p>
+        <ul class="sub-list">
+          <li><span class="num">2.1</span><span class="txt">오프라인 공연(무대, 대회, 발표회 등) 사용</span></li>
+          <li><span class="num">2.2</span><span class="txt">공연 영상의 온라인 업로드 (YouTube, SNS 등 플랫폼 포함)</span></li>
+          <li><span class="num">2.3</span><span class="txt">공연 영상에 대한 수익화</span></li>
+        </ul>
+        <p>단, 모든 저작권, 저작인접권, 마스터 권리 및 Content ID 권리는 전적으로 사운드스톰에 귀속됩니다.</p>
+      </div>
+    </div>
+
+    <div class="divider-thin"></div>
+
+    <!-- ── 3. 일회성 라이선스 사용 제한 ── -->
+<div class="section">
+  <div class="section-title">3. 일회성 라이선스 사용 범위</div>
+  <div class="section-body">
+    <p>일회성 공연 라이선스는 특정 공연 또는 단일 공연 프로젝트에서 해당 음원을 사용할 수 있는 권리를 의미합니다.</p>
+    <p>구매자는 다음 범위 내에서 음원을 사용할 수 있습니다.</p>
+    <ul class="sub-list">
+      <li><span class="num">3.1</span><span class="txt">단일 공연 또는 단일 공연 프로젝트에서의 사용</span></li>
+      <li><span class="num">3.2</span><span class="txt">해당 공연 영상의 온라인 업로드 (YouTube, SNS 등 플랫폼 포함)</span></li>
+      <li><span class="num">3.3</span><span class="txt">해당 공연 영상에 대한 수익화</span></li>
+    </ul>
+    <p>단, 동일 음원을 활용한 새로운 공연 프로젝트 또는 별도의 작품 제작 시에는 새로운 라이선스 구매가 필요합니다.</p>
+    <p>또한 본 라이선스는 공연 사용 권리에 한하며, 음원 파일 자체를 제3자에게 제공하거나 공유할 권리는 포함되지 않습니다.</p>
+  </div>
+</div>
+
+<div class="divider-thin"></div>
+
+<div class="section">
+  <div class="section-title">4. 영구 라이선스 사용 범위</div>
+  <div class="section-body">
+    <p>영구 공연 라이선스는 구매자가 해당 음원을 공연 목적으로 지속적으로 사용할 수 있는 권리를 의미합니다.</p>
+    <p>구매자는 동일 음원을 다음과 같은 범위에서 추가 라이선스 없이 사용할 수 있습니다.</p>
+    <ul class="sub-list">
+      <li><span class="num">4.1</span><span class="txt">안무 변경, 편성 변경 등 공연 구성의 변경</span></li>
+      <li><span class="num">4.2</span><span class="txt">동일 팀 또는 개인의 다양한 공연 및 무대에서의 반복 사용</span></li>
+      <li><span class="num">4.3</span><span class="txt">동일 공연 프로젝트의 재공연 및 장기 사용</span></li>
+    </ul>
+    <p>단, 본 라이선스는 공연 사용 권리에 한하며, 음원 파일 자체를 제3자에게 제공하거나 공유할 권리는 포함되지 않습니다.</p>
+  </div>
+</div>
+
+  </div><!-- /content -->
+</div><!-- /page 1 -->
+
+
+<!-- ═══════════════════════════════════════════════════
+     PAGE 2 / 2
+═══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-frame"></div>
+  <div class="page-frame-inner"></div>
+  <div class="watermark">SOUNDSTORM</div>
+
+  <div class="content">
+
+    <!-- ── 2페이지 소형 헤더 ── -->
+    <div class="page2-header">
+      <div class="page2-brand">SOUNDSTORM</div>
+      <div class="page2-doc">사운드스톰 공식 음원 사용 승인서 (계속)</div>
+    </div>
+
+    <div class="divider-gold"></div>
+
+    <!-- ── 5. 사용 제한 ── -->
+    <div class="section">
+      <div class="section-title">5. 사용 제한</div>
+      <div class="section-body">
+        <p>구매자는 다음 행위를 할 수 없습니다.</p>
+        <ul class="sub-list">
+          <li><span class="num">5.1</span><span class="txt">음원 파일의 재판매 또는 재배포</span></li>
+          <li><span class="num">5.2</span><span class="txt">음원 파일을 제3자에게 제공하는 행위</span></li>
+          <li><span class="num">5.3</span><span class="txt">리믹스, 재편곡, 구조 변경, 2차 가공</span></li>
+          <li><span class="num">5.4</span><span class="txt">광고·브랜드 홍보 영상 삽입 (별도 계약 필요)</span></li>
+          <li><span class="num">5.5</span><span class="txt">라이선스의 양도 또는 권리 이전</span></li>
+        </ul>
+        <div class="warning-box">
+          위 조항 위반 시 본 라이선스는 즉시 효력을 상실하며, 사운드스톰은 법적 조치를 취할 수 있습니다.
+        </div>
+      </div>
+    </div>
+
+    <div class="divider-thin"></div>
+
+    <!-- ── 6. Content ID 및 권리 귀속 ── -->
+    <div class="section">
+      <div class="section-title">6. Content ID 및 권리 귀속</div>
+      <div class="section-body">
+        <ul class="sub-list">
+          <li><span class="num">6.1</span><span class="txt">해당 음원에 대한 저작권, 저작인접권, 마스터 권리 및 Content ID 관리 권리는 전적으로 사운드스톰에 귀속됩니다.</span></li>
+          <li><span class="num">6.2</span><span class="txt">공연 영상의 수익화는 허용되나, 음원 자체에 대한 권리 이전은 이루어지지 않습니다.</span></li>
+          <li><span class="num">6.3</span><span class="txt">자동 권리 보호 시스템(Content ID)이 적용됩니다.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="divider-thin"></div>
+
+    <!-- ── 7. 효력 및 인증 ── -->
+    <div class="section">
+      <div class="section-title">7. 효력 및 인증</div>
+      <div class="section-body">
+        <ul class="sub-list">
+          <li><span class="num">7.1</span><span class="txt">본 승인서는 사운드스톰 라이선스 로그 시스템에 전자적으로 기록·보관됩니다.</span></li>
+          <li><span class="num">7.2</span><span class="txt">문서의 무단 수정, 위·변조 시 효력이 무효화됩니다.</span></li>
+          <li><span class="num">7.3</span><span class="txt">본 문서는 전자 발급 문서로 별도의 수기 서명을 요구하지 않습니다.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="divider-thin"></div>
+
+    <!-- ── 8. 준거법 및 관할 ── -->
+    <div class="section section-legal">
+      <div class="section-title">8. 준거법 및 관할</div>
+      <div class="section-body">
+        <ul class="sub-list">
+          <li><span class="num">8.1</span><span class="txt">본 라이선스는 대한민국 법률에 따라 해석됩니다.</span></li>
+          <li><span class="num">8.2</span><span class="txt">관할 법원은 사운드스톰 소재지 관할 법원으로 합니다.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="divider-gold"></div>
+
+    <!-- ── 발급자 / 푸터 ── -->
+    <div class="footer">
+      <div class="footer-main">
+
+        <div class="issuer-block">
+          <div class="issuer-label">License Issuer</div>
+          <div class="issuer-name">SOUNDSTORM</div>
+          <div class="issuer-sub">Official Music Production &amp; Licensing System</div>
+          <div class="issuer-sub">공식 음원 제작 및 라이선스 시스템</div>
+          <div class="issuer-reg">사업자등록번호 : 824-94-01802</div>
+        </div>
+
+        <div class="footer-right">
+        </div>
+
+      </div><!-- /footer-main -->
+
+      <div class="footer-bottom">
+        <div class="footer-note">
+          본 문서는 디지털 방식으로 발급된 공식 라이선스 승인서입니다.<br>
+          This document is an officially issued digital license certificate.
+        </div>
+        <div class="license-no-footer">LICENSE NO. &nbsp; {{ LICENSE_NUMBER }}</div>
+      </div>
+
+    </div><!-- /footer -->
+
+  </div><!-- /content -->
+</div><!-- /page 2 -->
+
+</body>
+</html>

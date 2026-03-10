@@ -1,0 +1,254 @@
+# 07_AUTOMATION Runtime Flow 설계 확정
+
+**작성일시**: 2026-02-25 15:52 KST
+**팀**: 운영팀_개발 | **단계**: 1단계 시스템 안정화
+**레이어**: 설계 (구조 고정 전 단계) — 파일 이동/삭제 금지
+
+---
+
+## 1️⃣ 전체 Runtime Flow 구조도
+
+```
+═══════════════════════════════════════════════════════
+  SOUNDSTORM AUTOMATION — MASTER RUNTIME FLOW
+═══════════════════════════════════════════════════════
+
+[TRIGGER A] Cloud Scheduler (10분 주기)
+    │
+    └──▶ [ENTRY: main_web.py] ─── Flask /trigger
+              │
+              ▼
+         [gmail_listener.py]
+          Gmail API 주문 수신 감지
+              │
+        (주문 없음?) ──▶ 종료 (success, processed=0)
+              │ 주문 있음
+              ▼
+         [issue_license.py]  ← 오케스트레이터
+          ┌───┬───┬───┬────┐
+          │   │   │   │    │
+          ▼   ▼   ▼   ▼    ▼
+        [db] [drive][pdf][r2][mail]
+      중복방지 음원DL PDF생성 업로드 SMTP발송
+              │
+              ▼
+         [output/] ← 현재 위치 (→ 99_SYSTEM 이전 예정)
+         라이선스 PDF 저장
+              │
+              ▼
+         [license.db] ← 발급 기록 영구 보존
+
+─────────────────────────────────────────────────────
+
+[TRIGGER B] crontab / 수동 실행 (주 1회)
+    │
+    └──▶ [ENTRY: weekly_sync.py]
+              │
+              ├──▶ [api_data_shuttler.py]
+              │     YouTube Analytics API 수집
+              │             │
+              │             ▼
+              │     [Google Sheets: _RawData_FullPeriod]
+              │          append-only 적재
+              │
+              └──▶ [sync_to_google_sheets.py]
+                    마스터 시트 지표 업데이트
+                            │
+                            ▼
+                   [google_sheets_formatting.py]
+                    서식 일괄 적용
+
+─────────────────────────────────────────────────────
+
+[TRIGGER C] 수동 (approve 명령)
+    │
+    └──▶ [ENTRY: snapshot_engine.py]
+              │
+              ├──▶ SNAPSHOT_DRAFT/ 읽기
+              ├──▶ 버전 +0.1 증가
+              ├──▶ ARCHIVE/ 백업
+              └──▶ 01_TEAM_GUIDES/ 교체
+```
+
+---
+
+## 2️⃣ 자동화 레이어 구조 초안
+
+```
+07_AUTOMATION_자동화/
+│
+├── [LAYER 1: ENTRY POINTS]          ← 실행 진입점 (2개만)
+│   ├── license_engine/main_web.py   → Cloud Run (프로덕션)
+│   └── engine/weekly_sync.py        → crontab / 수동
+│
+├── [LAYER 2: ENGINE CORE]           ← 핵심 비즈니스 로직
+│   ├── license_engine/core/         → 라이선스 발급 엔진
+│   │   ├── gmail_listener.py
+│   │   ├── issue_license.py         ← 핵심 오케스트레이터
+│   │   ├── pdf_renderer.py
+│   │   ├── mail_sender.py
+│   │   ├── r2_manager.py
+│   │   ├── drive_manager.py
+│   │   ├── db_manager.py
+│   │   ├── number_generator.py
+│   │   └── qr_generator.py
+│   │
+│   ├── engine/snapshot_engine.py    → OS Snapshot 엔진
+│   └── engine/sync_to_google_sheets.py → Sheets 동기화
+│
+├── [LAYER 3: DATA GENERATORS]       ← 데이터 수집/생성
+│   ├── scripts_스크립트/api_data_shuttler.py   ← 핵심
+│   ├── scripts_스크립트/youtube_analyzer.py
+│   └── scripts_스크립트/comment_analyzer.py
+│
+├── [LAYER 4: UTIL]                  ← 보조 도구
+│   ├── license_engine/config.py
+│   ├── license_engine/generate_token.py
+│   ├── engine/google_sheets_formatting.py
+│   └── scripts_스크립트/*.py (rename, organize 등)
+│
+├── [LAYER 5: RUNTIME DATA]          ← 자동 생성 파일 저장
+│   ├── license_engine/data/         → DB 파일
+│   ├── license_engine/logs/         → 엔진 로그
+│   ├── license_engine/output/       → PDF 산출물 (→ 99_SYSTEM 이전 예정)
+│   └── data/reports/                → YouTube 분석 산출물 (→ 99_SYSTEM 이전 예정)
+│
+├── [LAYER 6: TEST / DEBUG]          ← 비운영 파일
+│   ├── license_engine/test_*.py (4개)
+│   └── scripts_스크립트/debug_*.py 등
+│
+└── [LAYER 7: ARCHIVE / SNAPSHOT]    ← 상태 보존
+    ├── ARCHIVE/                     → 팀가이드 이전 버전 백업
+    └── SNAPSHOT_DRAFT/              → 승인 대기 초안
+```
+
+---
+
+## 3️⃣ LICENSE 흐름 구조도
+
+```
+┌─────────────────────────────────────────────────────┐
+│              LICENSE ENGINE FLOW v2.1               │
+└─────────────────────────────────────────────────────┘
+
+[Template 위치]
+ license_engine/templates/
+   └── license_template.html   ← WeasyPrint 렌더링 소스
+
+[PDF 생성 위치] (현재)
+ license_engine/output/
+   └── {SS-트랙ID-날짜-번호}_license.pdf
+
+[PDF 공식 저장 위치] (설계 확정)
+ 99_SYSTEM/licenses/
+   ├── YYYY-MM/
+   │   └── {SS-트랙ID-날짜-번호}_license.pdf
+   └── license_index.db  ← 발급 기록
+
+[R2 업로드 위치]
+ Cloudflare R2 버킷: soundstorm-licenses/
+   └── Presigned URL (24시간 만료)
+
+[Log 저장 위치] (현재)
+ license_engine/logs/
+   └── license_YYYYMMDD.log
+
+[Log 공식 저장 위치] (설계 확정)
+ 99_SYSTEM/logs/license/
+   └── license_YYYYMMDD.log
+
+[Store 레이어 연결 방식]
+ 네이버 스토어 → Gmail 주문 → Gmail API 수신 → 자동 처리
+ (직접 Store 폴더와 파일 연계 없음 — 느슨한 결합 유지)
+```
+
+---
+
+## 4️⃣ DATA 흐름 구조도
+
+```
+┌─────────────────────────────────────────────────────┐
+│              DATA MASTER FLOW                       │
+└─────────────────────────────────────────────────────┘
+
+원칙: Google Sheets = 유일 데이터 마스터
+      CSV = Snapshot 또는 전달용 산출물 (Master 아님)
+
+[수집]
+ YouTube Analytics API
+   │
+   ▼
+[api_data_shuttler.py]
+   │
+   ├──▶ Google Sheets: _RawData_FullPeriod  ← 원본 적재 (append-only)
+   └──▶ Google Sheets: _RawData_Master      ← 집계 뷰
+
+[가공]
+ sync_to_google_sheets.py
+   │
+   └──▶ Google Sheets: SS_음원마스터_최종   ← 운영 마스터 (Cell-by-Cell Update)
+
+[산출 파일 공식 경로] (설계 확정)
+ 99_SYSTEM/
+   ├── reports/           ← 분석 리포트 (xlsx, json)
+   ├── cache/             ← 임시 pickle/token 파일
+   ├── logs/              ← 실행 로그
+   └── licenses/          ← 라이선스 PDF (License Flow에서 이전)
+
+[현재 혼재 문제]
+ 07_AUTOMATION/data/reports/   →  99_SYSTEM/reports/ 로 이전 예정
+ 07_AUTOMATION/license_engine/output/  →  99_SYSTEM/licenses/ 로 이전 예정
+```
+
+---
+
+## 5️⃣ 구조 고정 제안안 (이동 전 단계)
+
+> [!IMPORTANT]
+> 이 제안은 향후 실행을 위한 초안입니다. 현재 파일 이동은 수행하지 않습니다.
+
+### Phase 1 — 코드 정리 (이동 없음, 네이밍/분리)
+
+| 항목 | 현재 상태 | 조치 |
+|:---|:---|:---|
+| `license_engine/test_*.py` 4개 | 엔진과 혼재 | `license_engine/tests/` 폴더 생성 후 이동 |
+| `google_sheets_formatting_exact.py` | 루트에 중복 존재 | `DEPRECATED` 태그 후 삭제 검토 |
+| `scripts_스크립트/debug_*.py` | 절대 경로 하드코딩 | 삭제 검토 |
+| `configs_설정파일/` | 비어있음 | 환경별 config 파일 이동 대상 |
+
+### Phase 2 — 산출물 경로 통합 (99_SYSTEM 구성)
+
+```
+99_SYSTEM/          ← 신규 생성 필요
+├── licenses/       ← license_engine/output/ 내용 이전
+├── reports/        ← data/reports/ 내용 이전
+├── logs/
+│   └── license/    ← license_engine/logs/ 이전
+└── cache/          ← 임시 파일
+```
+
+> [!CAUTION]
+> `license_engine/output/` 이동 시 `pdf_renderer.py` 내 출력 경로(`BASE_DIR + "/output/"`)를 반드시 수정해야 합니다. 코드 수정과 폴더 이전을 동시에 수행해야 합니다.
+
+### Phase 3 — 실행 진입점 2개 고정
+
+| 진입점 | 파일 | 트리거 | 상태 |
+|:---|:---|:---|:---:|
+| **라이선스 엔진** | `license_engine/main_web.py` | Cloud Scheduler | ✅ 운영중 |
+| **데이터 동기화** | `engine/weekly_sync.py` | crontab (주 1회) | ✅ 운영중 |
+| `engine/snapshot_engine.py` | `approve` 명령 | ✅ 별도 운영 | — |
+
+### 최종 목표 디렉토리 구조
+
+```
+07_AUTOMATION_자동화/
+├── engine/            ← ENGINE + UTIL (Sheets, Snapshot)
+├── license_engine/    ← LICENSE ENGINE (core/, tests/, venv/)
+├── scripts_스크립트/  ← DATA_GENERATOR + UTIL
+├── configs_설정파일/  ← 환경별 설정 파일 (구성 예정)
+├── ARCHIVE/           ← Snapshot 백업 (현 유지)
+├── SNAPSHOT_DRAFT/    ← Snapshot 초안 (현 유지)
+└── [삭제 예정]
+    ├── google_sheets_formatting_exact.py
+    └── data/reports/ → 99_SYSTEM/으로 이전
+```

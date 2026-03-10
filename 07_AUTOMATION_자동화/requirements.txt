@@ -1,0 +1,7 @@
+# SOUNDSTORM Automation Dependencies
+
+pandas==2.2.2
+isodate==0.6.1
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.115.0
+gspread==6.0.0
