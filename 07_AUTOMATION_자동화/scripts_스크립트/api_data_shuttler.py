@@ -1,4 +1,5 @@
 import os
+import time
 import pickle
 import json
 import urllib.request
@@ -110,6 +111,52 @@ def get_authenticated_service():
             pickle.dump(creds, token)
             
     return build('youtube', 'v3', credentials=creds), build('youtubeAnalytics', 'v2', credentials=creds)
+
+def fetch_demographics(analytics, end_dt):
+    # FORCE DATE RANGE: 365 days window for stable demographics
+    start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = end_dt.strftime('%Y-%m-%d')
+    print(f"  📅 [Analytics] Demographic Date Guard: {start_date} ~ {end_date}")
+    
+    rows = []
+    
+    def execute_query_with_retry(dimension):
+        for retry in range(3):
+            try:
+                resp = analytics.reports().query(
+                    ids='channel==mine',
+                    startDate=start_date,
+                    endDate=end_date,
+                    metrics='viewerPercentage',
+                    dimensions=dimension
+                ).execute()
+                return resp.get('rows', [])
+            except Exception as e:
+                print(f"  [Analytics] Retry attempt {retry+1} after HTTP 500 or Error ({e})")
+                time.sleep(2)
+        return []
+
+    # AGE
+    age_rows = execute_query_with_retry('ageGroup')
+    if not age_rows:
+        print("  [Analytics] Age rows collected: 0 (privacy threshold or server error)")
+        rows.append({'metric_type': 'age', 'dim_1': 'unknown', 'dim_2': 'ageGroup', 'value': 0})
+    else:
+        print(f"  [Analytics] Age rows collected: {len(age_rows)}")
+        for r in age_rows:
+            rows.append({'metric_type': 'age', 'dim_1': r[0], 'dim_2': 'ageGroup', 'value': r[1]})
+
+    # GENDER
+    gender_rows = execute_query_with_retry('gender')
+    if not gender_rows:
+        print("  [Analytics] Gender rows collected: 0 (privacy threshold or server error)")
+        rows.append({'metric_type': 'gender', 'dim_1': 'unknown', 'dim_2': 'gender', 'value': 0})
+    else:
+        print(f"  [Analytics] Gender rows collected: {len(gender_rows)}")
+        for r in gender_rows:
+            rows.append({'metric_type': 'gender', 'dim_1': r[0], 'dim_2': 'gender', 'value': r[1]})
+            
+    return rows
 
 def main():
     print("🚀 API-First 셔틀 v10.0 가동 시작...")
@@ -269,24 +316,10 @@ def main():
 
     # 1. 인구통계 (성별/나이)
     try:
-        
-        # Gender
-        gender_resp = analytics.reports().query(
-            ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='viewerPercentage', dimensions='gender'
-        ).execute()
-        for row in gender_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'gender', 'dim_1': row[0], 'dim_2': 'gender', 'value': row[1]})
-
-        # Age
-        age_resp = analytics.reports().query(
-            ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='viewerPercentage', dimensions='ageGroup'
-        ).execute()
-        for row in age_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'age', 'dim_1': row[0], 'dim_2': 'ageGroup', 'value': row[1]})
+        demo_rows = fetch_demographics(analytics, end_dt)
+        full_period_rows.extend(demo_rows)
     except Exception as e:
-        print(f"⚠️ 인구통계 수집 중 오류: {e}")
+        print(f"⚠️ 인구통계 수집 중 예상치 못한 오류: {e}")
 
     # 2. 유입경로 (Traffic Source - General)
     try:
