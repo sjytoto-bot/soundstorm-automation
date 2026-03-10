@@ -112,6 +112,18 @@ def get_authenticated_service():
             
     return build('youtube', 'v3', credentials=creds), build('youtubeAnalytics', 'v2', credentials=creds)
 
+def execute_query_with_retry(request, label="Query"):
+    for retry in range(3):
+        try:
+            return request.execute()
+        except Exception as e:
+            # Exponential backoff: 0, 2, 4 seconds
+            wait_time = 2 * retry
+            print(f"  [Analytics] Retry attempt {retry+1} for {label} after error: {e}")
+            if wait_time > 0:
+                time.sleep(wait_time)
+    return None
+
 def fetch_demographics(analytics, end_dt):
     # FORCE DATE RANGE: 365 days window for stable demographics
     start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
@@ -120,26 +132,19 @@ def fetch_demographics(analytics, end_dt):
     
     rows = []
     
-    def execute_query_with_retry(dimension):
-        for retry in range(3):
-            try:
-                resp = analytics.reports().query(
-                    ids='channel==mine',
-                    startDate=start_date,
-                    endDate=end_date,
-                    metrics='viewerPercentage',
-                    dimensions=dimension
-                ).execute()
-                return resp.get('rows', [])
-            except Exception as e:
-                print(f"  [Analytics] Retry attempt {retry+1} after HTTP 500 or Error ({e})")
-                time.sleep(2)
-        return []
-
     # AGE
-    age_rows = execute_query_with_retry('ageGroup')
+    req_age = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='viewerPercentage',
+        dimensions='ageGroup'
+    )
+    age_resp = execute_query_with_retry(req_age, "Age")
+    age_rows = age_resp.get('rows', []) if age_resp else []
+    
     if not age_rows:
-        print("  [Analytics] Age rows collected: 0 (privacy threshold or server error)")
+        print("  [Analytics] Age rows collected: 0 (privacy threshold)")
         rows.append({'metric_type': 'age', 'dim_1': 'unknown', 'dim_2': 'ageGroup', 'value': 0})
     else:
         print(f"  [Analytics] Age rows collected: {len(age_rows)}")
@@ -147,9 +152,18 @@ def fetch_demographics(analytics, end_dt):
             rows.append({'metric_type': 'age', 'dim_1': r[0], 'dim_2': 'ageGroup', 'value': r[1]})
 
     # GENDER
-    gender_rows = execute_query_with_retry('gender')
+    req_gender = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='viewerPercentage',
+        dimensions='gender'
+    )
+    gender_resp = execute_query_with_retry(req_gender, "Gender")
+    gender_rows = gender_resp.get('rows', []) if gender_resp else []
+    
     if not gender_rows:
-        print("  [Analytics] Gender rows collected: 0 (privacy threshold or server error)")
+        print("  [Analytics] Gender rows collected: 0 (privacy threshold)")
         rows.append({'metric_type': 'gender', 'dim_1': 'unknown', 'dim_2': 'gender', 'value': 0})
     else:
         print(f"  [Analytics] Gender rows collected: {len(gender_rows)}")
@@ -157,6 +171,88 @@ def fetch_demographics(analytics, end_dt):
             rows.append({'metric_type': 'gender', 'dim_1': r[0], 'dim_2': 'gender', 'value': r[1]})
             
     return rows
+
+def fetch_traffic_sources(analytics, end_dt):
+    start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = end_dt.strftime('%Y-%m-%d')
+    print(f"  📅 [Analytics] Traffic Date Guard: {start_date} ~ {end_date}")
+    
+    req = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='views',
+        dimensions='insightTrafficSourceType',
+        sort='-views'
+    )
+    resp = execute_query_with_retry(req, "TrafficSource")
+    rows = resp.get('rows', []) if resp else []
+    
+    if not rows:
+        print("  [Analytics] Traffic rows: 0 (privacy threshold)")
+        return [{'metric_type': 'traffic', 'dim_1': 'unknown', 'dim_2': '', 'value': 0}]
+    
+    print(f"  [Analytics] Traffic rows: {len(rows)}")
+    return [{'metric_type': 'traffic', 'dim_1': r[0], 'dim_2': '', 'value': r[1]} for r in rows]
+
+def fetch_countries(analytics, end_dt):
+    start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = end_dt.strftime('%Y-%m-%d')
+    print(f"  📅 [Analytics] Country Date Guard: {start_date} ~ {end_date}")
+    
+    req = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='views',
+        dimensions='country',
+        sort='-views'
+    )
+    resp = execute_query_with_retry(req, "Country")
+    rows = resp.get('rows', []) if resp else []
+    
+    if not rows:
+        print("  [Analytics] Country rows: 0 (privacy threshold)")
+        return [{'metric_type': 'country', 'dim_1': 'unknown', 'dim_2': '', 'value': 0}]
+    
+    print(f"  [Analytics] Country rows: {len(rows)}")
+    
+    # Top 20 + other aggregation
+    top_20 = rows[:20]
+    others = rows[20:]
+    
+    result_rows = []
+    for r in top_20:
+        result_rows.append({'metric_type': 'country', 'dim_1': r[0], 'dim_2': '', 'value': r[1]})
+        
+    if others:
+        other_sum = sum(r[1] for r in others)
+        result_rows.append({'metric_type': 'country', 'dim_1': 'other', 'dim_2': '', 'value': other_sum})
+        
+    return result_rows
+
+def fetch_devices(analytics, end_dt):
+    start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = end_dt.strftime('%Y-%m-%d')
+    print(f"  📅 [Analytics] Device Date Guard: {start_date} ~ {end_date}")
+    
+    req = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='views',
+        dimensions='deviceType',
+        sort='-views'
+    )
+    resp = execute_query_with_retry(req, "DeviceType")
+    rows = resp.get('rows', []) if resp else []
+    
+    if not rows:
+        print("  [Analytics] Device rows: 0 (privacy threshold)")
+        return [{'metric_type': 'device', 'dim_1': 'unknown device', 'dim_2': '', 'value': 0}]
+    
+    print(f"  [Analytics] Device rows: {len(rows)}")
+    return [{'metric_type': 'device', 'dim_1': r[0].lower(), 'dim_2': '', 'value': r[1]} for r in rows]
 
 def main():
     print("🚀 API-First 셔틀 v10.0 가동 시작...")
@@ -323,22 +419,19 @@ def main():
 
     # 2. 유입경로 (Traffic Source - General)
     try:
-        traffic_resp = analytics.reports().query(
-            ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='views', dimensions='insightTrafficSourceType', sort='-views', maxResults=10
-        ).execute()
-        for row in traffic_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'EXTERNAL', 'dim_1': row[0], 'dim_2': '', 'value': row[1]})
+        traffic_rows = fetch_traffic_sources(analytics, end_dt)
+        full_period_rows.extend(traffic_rows)
             
         # 2-1. YouTube 검색어 상세 수집 (YT_SEARCH Detail)
         try:
-            search_resp = analytics.reports().query(
+            search_req = analytics.reports().query(
                 ids='channel==mine', startDate=start_date_90, endDate=end_date,
                 metrics='views', 
                 dimensions='insightTrafficSourceDetail',
                 filters='insightTrafficSourceType==YT_SEARCH', sort='-views', maxResults=15
-            ).execute()
-            for row in search_resp.get('rows', []):
+            )
+            search_resp = execute_query_with_retry(search_req, "KeywordDetail")
+            for row in (search_resp.get('rows', []) if search_resp else []):
                 full_period_rows.append({'metric_type': 'KEYWORD', 'dim_1': row[0], 'dim_2': 'search', 'value': row[1]})
         except Exception as e:
             print(f"⚠️ 검색어 상세 수집 건너뜀: {e}")
@@ -346,17 +439,18 @@ def main():
         # 2-2. 외부 유입 상세 수집 (EXTERNAL Detail)
         try:
             # [v12.7] insightTrafficSourceDetail은 반드시 Type(EXT_URL 등)을 필터로 지정해야 함
-            ext_detail_resp = analytics.reports().query(
+            ext_detail_req = analytics.reports().query(
                 ids='channel==mine',
                 startDate=start_date_90,
                 endDate=end_date,
                 metrics='views',
                 dimensions='insightTrafficSourceDetail',
                 filters='insightTrafficSourceType==EXT_URL'
-            ).execute()
+            )
+            ext_detail_resp = execute_query_with_retry(ext_detail_req, "ExtUrlDetail")
             
             # Python 레벨에서 도메인 필터링 및 정렬 (Post-processing)
-            raw_ext_rows = ext_detail_resp.get('rows', [])
+            raw_ext_rows = ext_detail_resp.get('rows', []) if ext_detail_resp else []
             processed_ext = []
             
             for row in raw_ext_rows:
@@ -380,28 +474,19 @@ def main():
             print(f"⚠️ 외부 유입 상세 수집 건너뜀: {e}")
 
     except Exception as e:
-        print(f"⚠️ 유입경로 상세 수집 중 오류: {e}")
+        print(f"⚠️ 유입경로 수집 중 오류: {e}")
 
     # 3. 국가 (Country)
     try:
-        country_resp = analytics.reports().query(
-            ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='views', dimensions='country', sort='-views', maxResults=10
-        ).execute()
-        for row in country_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'COUNTRY', 'dim_1': row[0], 'dim_2': '', 'value': row[1]})
+        country_rows = fetch_countries(analytics, end_dt)
+        full_period_rows.extend(country_rows)
     except Exception as e:
         print(f"⚠️ 국가 수집 중 오류: {e}")
 
-    # 5. 기기 데이터 수집 (Device)
+    # 4. 기기 데이터 수집 (Device)
     try:
-        device_resp = analytics.reports().query(
-            ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='views', dimensions='deviceType', sort='-views'
-        ).execute()
-        for row in device_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'DEVICE', 'dim_1': row[0].lower(), 'dim_2': '', 'value': row[1]})
-        print(f"✅ 기기 구성 수집 완료")
+        device_rows = fetch_devices(analytics, end_dt)
+        full_period_rows.extend(device_rows)
     except Exception as e:
         print(f"⚠️ 기기 구성 수집 중 오류: {e}")
 
@@ -412,7 +497,7 @@ def main():
     
     for src_type in DETAIL_SOURCE_TYPES:
         try:
-            detail_resp = analytics.reports().query(
+            detail_req = analytics.reports().query(
                 ids='channel==mine',
                 startDate=start_date_90,
                 endDate=end_date,
@@ -421,8 +506,9 @@ def main():
                 filters=f'insightTrafficSourceType=={src_type}',
                 sort='-views',
                 maxResults=25
-            ).execute()
-            detail_rows = detail_resp.get('rows', [])
+            )
+            detail_resp = execute_query_with_retry(detail_req, f"Detail_{src_type}")
+            detail_rows = detail_resp.get('rows', []) if detail_resp else []
             if not detail_rows:
                 print(f"  [WARN] No rows returned for {src_type} | {start_date_90} ~ {end_date}")
             for row in detail_rows:
