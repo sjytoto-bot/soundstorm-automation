@@ -273,18 +273,18 @@ def main():
         # Gender
         gender_resp = analytics.reports().query(
             ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='viewerPercentage', dimensions='gender', sort='-viewerPercentage'
+            metrics='viewerPercentage', dimensions='gender'
         ).execute()
         for row in gender_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'DEMOGRAPHICS', 'dim_1': row[0], 'dim_2': 'gender', 'value': row[1]})
+            full_period_rows.append({'metric_type': 'gender', 'dim_1': row[0], 'dim_2': 'gender', 'value': row[1]})
 
         # Age
         age_resp = analytics.reports().query(
             ids='channel==mine', startDate=start_date_90, endDate=end_date,
-            metrics='viewerPercentage', dimensions='ageGroup', sort='-viewerPercentage'
+            metrics='viewerPercentage', dimensions='ageGroup'
         ).execute()
         for row in age_resp.get('rows', []):
-            full_period_rows.append({'metric_type': 'DEMOGRAPHICS', 'dim_1': row[0], 'dim_2': 'age', 'value': row[1]})
+            full_period_rows.append({'metric_type': 'age', 'dim_1': row[0], 'dim_2': 'ageGroup', 'value': row[1]})
     except Exception as e:
         print(f"⚠️ 인구통계 수집 중 오류: {e}")
 
