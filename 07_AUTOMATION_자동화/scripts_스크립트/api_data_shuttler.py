@@ -360,6 +360,18 @@ def main():
     except Exception as e:
         print(f"⚠️ 국가 수집 중 오류: {e}")
 
+    # 5. 기기 데이터 수집 (Device)
+    try:
+        device_resp = analytics.reports().query(
+            ids='channel==mine', startDate=start_date_90, endDate=end_date,
+            metrics='views', dimensions='deviceType', sort='-views'
+        ).execute()
+        for row in device_resp.get('rows', []):
+            full_period_rows.append({'metric_type': 'DEVICE', 'dim_1': row[0].lower(), 'dim_2': '', 'value': row[1]})
+        print(f"✅ 기기 구성 수집 완료")
+    except Exception as e:
+        print(f"⚠️ 기기 구성 수집 중 오류: {e}")
+
     # 4. [v13.2] EXTERNAL_DETAIL 전략 데이터 수집 (Type별 필터 루프 - API 공식 스펙 준수)
     # insightTrafficSourceDetail은 반드시 insightTrafficSourceType 필터와 함께 사용해야 함
     # YT_SEARCH는 이미 블록 2-1에서 KEYWORD로 수집하므로 제외
