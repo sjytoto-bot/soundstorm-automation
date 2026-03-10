@@ -15,15 +15,12 @@ from google.oauth2.service_account import Credentials
 from pathlib import Path
 
 # ========== 설정 ==========
-# [v12.6] 동적 SCRIPT_DIR 및 ROOT_DIR 탐색 (경로 독립성 보장)
-SCRIPT_DIR = Path(__file__).resolve().parent
+# [v15.1] GitHub Actions 환경 호환을 위한 경로 의존성 제거
+BASE_DIR = os.getcwd()
+print("🚀 SOUNDSTORM automation starting")
+print(f"📁 Base directory: {BASE_DIR}")
 
-ROOT_DIR = SCRIPT_DIR
-while ROOT_DIR.name != 'SOUNDSTORM' and ROOT_DIR.parent != ROOT_DIR:
-    ROOT_DIR = ROOT_DIR.parent
-
-if ROOT_DIR.name != 'SOUNDSTORM':
-    raise Exception("❌ SOUNDSTORM 최상위 폴더를 찾을 수 없습니다.")
+ROOT_DIR = Path(BASE_DIR)
 
 CHANNEL_ID = 'UCAvSo9RLq0rCy64IH2nm91w'
 SPREADSHEET_ID = "12gKS-y-qiMzDNCMpDC-cpfKA1UFa2yPZpD4np3LTR4Y"
