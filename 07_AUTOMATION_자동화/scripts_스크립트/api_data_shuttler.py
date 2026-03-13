@@ -254,6 +254,70 @@ def fetch_devices(analytics, end_dt):
     print(f"  [Analytics] Device rows: {len(rows)}")
     return [{'metric_type': 'device', 'dim_1': r[0].lower(), 'dim_2': '', 'value': r[1]} for r in rows]
 
+def fetch_video_ctr_map(analytics, end_dt):
+    # Reach metrics (Impressions/CTR) REQUIRE insightTrafficSourceType dimension in Analytics API
+    start_date = (end_dt - timedelta(days=28)).strftime('%Y-%m-%d')
+    end_date = end_dt.strftime('%Y-%m-%d')
+    print(f"  📅 [Analytics] Video CTR Batch Query (28d window, 3d lag): {start_date} ~ {end_date}")
+    
+    # First attempt: Try both Impressions and CTR
+    req = analytics.reports().query(
+        ids='channel==mine',
+        startDate=start_date,
+        endDate=end_date,
+        metrics='videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
+        dimensions='video,insightTrafficSourceType'
+    )
+    resp = execute_query_with_retry(req, "VideoCTRBatch_Full")
+    
+    # Second attempt: If full query fails, try only Impressions (due to known API bugs with ClickRate)
+    if not resp:
+        print("  [Analytics] Full CTR query failed. Retrying with impressions only...")
+        req_imp = analytics.reports().query(
+            ids='channel==mine',
+            startDate=start_date,
+            endDate=end_date,
+            metrics='videoThumbnailImpressions',
+            dimensions='video,insightTrafficSourceType'
+        )
+        resp = execute_query_with_retry(req_imp, "VideoImpressionsOnly")
+        has_ctr_metric = False
+    else:
+        has_ctr_metric = True
+
+    ctr_map = {} # { video_id: { 'impressions': sum, 'clicks': sum } }
+    
+    if resp and 'rows' in resp:
+        headers = [h['name'] for h in resp.get('columnHeaders', [])]
+        hmap = {name: i for i, name in enumerate(headers)}
+        for r in resp['rows']:
+            vid = r[hmap['video']]
+            imp = int(r[hmap['videoThumbnailImpressions']])
+            
+            if vid not in ctr_map:
+                ctr_map[vid] = {'impressions': 0, 'clicks': 0.0}
+            
+            ctr_map[vid]['impressions'] += imp
+            
+            if has_ctr_metric and 'videoThumbnailImpressionsClickRate' in hmap:
+                rate = float(r[hmap['videoThumbnailImpressionsClickRate']])
+                ctr_map[vid]['clicks'] += (imp * (rate / 100.0))
+    
+    # Finalize CTR calculation
+    final_map = {}
+    for vid, stats in ctr_map.items():
+        avg_rate = 0.0
+        if stats['impressions'] > 0 and has_ctr_metric:
+            avg_rate = round((stats['clicks'] / stats['impressions']) * 100, 2)
+        
+        final_map[vid] = {
+            'impressions': stats['impressions'],
+            'ctr': avg_rate
+        }
+    
+    print(f"  ✅ Video CTR Map Calculated: {len(final_map)} videos processed (CTR Metric: {has_ctr_metric})")
+    return final_map
+
 def main():
     print("🚀 API-First 셔틀 v10.0 가동 시작...")
     
@@ -290,6 +354,15 @@ def main():
     # 3. 상세 데이터 + 심화 통계 병합 (Hybrid API Queries)
     print("📊 상세 데이터 분석 중...")
     master_rows = []
+
+    # [v16.1] CTR/Impression 실시간 매핑 데이터 사전 확보
+    try:
+        # Reach 데이터는 최소 3일 지연 필요
+        end_dt_ctr = datetime.today() - timedelta(days=3)
+        video_ctr_lookup = fetch_video_ctr_map(analytics, end_dt_ctr)
+    except Exception as e:
+        print(f"⚠️ CTR 맵 구축 실패: {e}")
+        video_ctr_lookup = {}
     
     # 50개씩 배치 처리 (Data API 제한)
     for i in range(0, len(videos), 50):
@@ -325,16 +398,17 @@ def main():
                 end_date = end_dt_vid.strftime('%Y-%m-%d')
                 start_date = start_date_obj.strftime('%Y-%m-%d')
                 
-                rep = analytics.reports().query(
+                rep_req = analytics.reports().query(
                     ids='channel==mine',
                     startDate=start_date,
                     endDate=end_date,
                     metrics='averageViewDuration,subscribersGained,estimatedMinutesWatched,shares',
                     dimensions='video',
                     filters=f'video=={vid}'
-                ).execute()
+                )
+                rep = execute_query_with_retry(rep_req, f"VideoDetail:{vid}")
                 
-                if 'rows' in rep and rep['rows']:
+                if rep and 'rows' in rep and rep['rows']:
                     # [v10.3] 컬럼 헤더 기반 고속 매핑 (Dict Lookup)
                     headers = [h['name'] for h in rep.get('columnHeaders', [])]
                     hmap = {name: i for i, name in enumerate(headers)}
@@ -348,6 +422,10 @@ def main():
                     }
             except Exception as e:
                 print(f"[Analytics Skip] {vid}: {e}")
+
+            # [v16.1] CTR 매핑 (사건 구축된 맵 활용)
+            ctr_metrics = video_ctr_lookup.get(vid, {'impressions': 0, 'ctr': 0})
+
 
             # 러닝타임 파싱 (PT1M30S -> sec)
             duration = isodate.parse_duration(content['duration']).total_seconds()
@@ -380,6 +458,8 @@ def main():
                 'total_watch_time_min': analytics_data.get('watch_min', 0),
                 'subscribers_gained': analytics_data.get('subs', 0),
                 'shares': analytics_data.get('shares', 0),
+                'impressions': ctr_metrics['impressions'],
+                'ctr': ctr_metrics['ctr'],
                 'youtube_title': snippet['title'],
                 'data_fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 '썸네일URL': thumbnail_url
@@ -549,6 +629,8 @@ def main():
         'avg_watch_time_sec': 0,
         'total_watch_time_min': 0,
         'subscribers_gained': 0,
+        'impressions': 0,
+        'ctr': 0,
         'youtube_title': '',
         'data_fetched_at': ''
     }
