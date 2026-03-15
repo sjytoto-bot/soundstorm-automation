@@ -255,68 +255,10 @@ def fetch_devices(analytics, end_dt):
     return [{'metric_type': 'device', 'dim_1': r[0].lower(), 'dim_2': '', 'value': r[1]} for r in rows]
 
 def fetch_video_ctr_map(analytics, end_dt):
-    # Reach metrics (Impressions/CTR) REQUIRE insightTrafficSourceType dimension in Analytics API
-    start_date = (end_dt - timedelta(days=28)).strftime('%Y-%m-%d')
-    end_date = end_dt.strftime('%Y-%m-%d')
-    print(f"  📅 [Analytics] Video CTR Batch Query (28d window, 3d lag): {start_date} ~ {end_date}")
-    
-    # First attempt: Try both Impressions and CTR
-    req = analytics.reports().query(
-        ids='channel==mine',
-        startDate=start_date,
-        endDate=end_date,
-        metrics='videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
-        dimensions='video,insightTrafficSourceType'
-    )
-    resp = execute_query_with_retry(req, "VideoCTRBatch_Full")
-    
-    # Second attempt: If full query fails, try only Impressions (due to known API bugs with ClickRate)
-    if not resp:
-        print("  [Analytics] Full CTR query failed. Retrying with impressions only...")
-        req_imp = analytics.reports().query(
-            ids='channel==mine',
-            startDate=start_date,
-            endDate=end_date,
-            metrics='videoThumbnailImpressions',
-            dimensions='video,insightTrafficSourceType'
-        )
-        resp = execute_query_with_retry(req_imp, "VideoImpressionsOnly")
-        has_ctr_metric = False
-    else:
-        has_ctr_metric = True
-
-    ctr_map = {} # { video_id: { 'impressions': sum, 'clicks': sum } }
-    
-    if resp and 'rows' in resp:
-        headers = [h['name'] for h in resp.get('columnHeaders', [])]
-        hmap = {name: i for i, name in enumerate(headers)}
-        for r in resp['rows']:
-            vid = r[hmap['video']]
-            imp = int(r[hmap['videoThumbnailImpressions']])
-            
-            if vid not in ctr_map:
-                ctr_map[vid] = {'impressions': 0, 'clicks': 0.0}
-            
-            ctr_map[vid]['impressions'] += imp
-            
-            if has_ctr_metric and 'videoThumbnailImpressionsClickRate' in hmap:
-                rate = float(r[hmap['videoThumbnailImpressionsClickRate']])
-                ctr_map[vid]['clicks'] += (imp * (rate / 100.0))
-    
-    # Finalize CTR calculation
-    final_map = {}
-    for vid, stats in ctr_map.items():
-        avg_rate = 0.0
-        if stats['impressions'] > 0 and has_ctr_metric:
-            avg_rate = round((stats['clicks'] / stats['impressions']) * 100, 2)
-        
-        final_map[vid] = {
-            'impressions': stats['impressions'],
-            'ctr': avg_rate
-        }
-    
-    print(f"  ✅ Video CTR Map Calculated: {len(final_map)} videos processed (CTR Metric: {has_ctr_metric})")
-    return final_map
+    # [v16.1 ALERT] Reach metrics (Impressions/CTR) are currently restricted in YT Analytics API v2
+    # for individual channels (channel==mine). Skipping to avoid quota waste and 400 errors.
+    # print("  📅 [Analytics] Video CTR Batch Query SKIPPED (API Access Restriction)")
+    return {}
 
 def main():
     print("🚀 API-First 셔틀 v10.0 가동 시작...")
@@ -639,7 +581,7 @@ def main():
 
     # Update _RawData_Master
     df_master = pd.DataFrame(master_rows)
-    
+
     # [v15.3] 옵션 A (권장): 헤더 기반 write 로직으로 변경 (기존 시트 헤더 존중)
     try:
         ws_master = ss.worksheet('_RawData_Master')
@@ -650,10 +592,33 @@ def main():
         ws_master = ss.add_worksheet('_RawData_Master', 1000, 30)
         existing_headers = list(COLUMN_DEFAULTS.keys()) + ['썸네일URL']
 
-    # 1) 기본값 적용
+    # [v15.4] impressions / ctr 보존: overwrite 전 기존 시트 값 읽기
+    # studio_csv_ingestor.py 가 기록한 CTR 값이 덮어써지는 것을 방지한다.
+    _REACH_COLS = ('impressions', 'ctr')
+    existing_reach_map = {}  # {video_id: {'impressions': val, 'ctr': val}}
+    try:
+        existing_rows = ws_master.get_all_records()
+        for row in existing_rows:
+            vid = str(row.get('video_id', '')).strip()
+            if vid:
+                existing_reach_map[vid] = {
+                    'impressions': row.get('impressions', 0),
+                    'ctr':         row.get('ctr', 0),
+                }
+        print(f"  📥 [Master] 기존 reach 값 로드: {len(existing_reach_map)}개 video_id")
+    except Exception as _e:
+        print(f"  ⚠️  [Master] 기존 reach 값 로드 실패 (계속 진행): {_e}")
+
+    # 1) 기본값 적용 (impressions / ctr 는 기존 시트 값 우선 보존)
     for col, default in COLUMN_DEFAULTS.items():
         if col not in df_master.columns:
-            df_master[col] = default
+            if col in _REACH_COLS and existing_reach_map:
+                df_master[col] = df_master['video_id'].apply(
+                    lambda vid: existing_reach_map.get(str(vid).strip(), {}).get(col, default)
+                )
+                print(f"  🔒 [Master] '{col}' 컬럼 기존 값 보존 ({len(existing_reach_map)}개)")
+            else:
+                df_master[col] = default
             
     # 2) 시트의 기존 헤더 중 df_master에 없는 컬럼이 있다면 빈 값으로 추가하여 구조 보존
     for col in existing_headers:
