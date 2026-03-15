@@ -655,6 +655,13 @@ def main(manual_mode=False, dry_run=False):
         except Exception as e:
             print(f"  ⚠️  Thumbnail_Style_Performance 생성 실패 (비치명적): {e}")
 
+        # STEP 3 — Video Diagnostics
+        try:
+            from analytics.video_diagnostics_engine import build_video_diagnostics
+            build_video_diagnostics(ss)
+        except Exception as e:
+            print(f"  ⚠️  Video_Diagnostics 생성 실패 (비치명적): {e}")
+
     # ── 지표 재계산 ───────────────────────────────────────────────────────────
     if updated > 0 and not dry_run:
         trigger_recalculate_metrics()
