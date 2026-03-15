@@ -395,6 +395,25 @@ def update_rawdata_master(reach_map, dry_run=False):
 
     ws.batch_update(update_data, value_input_option='USER_ENTERED')
     print(f"  📤 _RawData_Master 업데이트 완료 ({matched}개 영상 / {len(cell_updates)}셀 갱신)")
+
+    # ── 검증: 쓰기 후 첫 5행 읽어서 출력 ─────────────────────────────────────
+    print("  🔍 [검증] _RawData_Master 쓰기 확인 (첫 5행):")
+    verify_range = f"{gspread.utils.rowcol_to_a1(1, idx_impressions + 1)}:" \
+                   f"{gspread.utils.rowcol_to_a1(6, idx_ctr + 1)}"
+    print(f"       읽기 범위: _RawData_Master!{verify_range}")
+    verify_rows = ws.get(verify_range)
+    # 헤더 행 제외 (row 1 → index 0)
+    header_row  = verify_rows[0] if verify_rows else []
+    print(f"       헤더: {header_row}")
+    for i, vrow in enumerate(verify_rows[1:6], start=2):
+        imp_val = vrow[0] if len(vrow) > 0 else "—"
+        ctr_val = vrow[1] if len(vrow) > 1 else "—"
+        # video_id 함께 출력 (가독성)
+        vid_in_row = ""
+        if len(all_values) > i - 1:
+            vid_in_row = all_values[i - 1][idx_video_id] if len(all_values[i - 1]) > idx_video_id else ""
+        print(f"       Row {i} video_id={vid_in_row} impressions={imp_val} ctr={ctr_val}")
+
     return matched
 
 
