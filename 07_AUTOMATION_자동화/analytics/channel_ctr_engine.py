@@ -74,13 +74,22 @@ def build_channel_ctr_kpi(spreadsheet):
     print(f"  ✅ 유효 데이터: {len(df)}행 (impressions>0, ctr>0)")
 
     # ── 4. KPI 계산 ────────────────────────────────────────────────────────
-    channel_avg_ctr         = round(df["ctr"].mean(),   6)
-    channel_median_ctr      = round(df["ctr"].median(), 6)
+    channel_avg_ctr           = round(df["ctr"].mean(),   6)
+    channel_median_ctr        = round(df["ctr"].median(), 6)
     channel_total_impressions = int(df["impressions"].sum())
     channel_total_views       = int(df["views"].sum())
 
-    print(f"  avg_ctr={channel_avg_ctr:.4f}  median_ctr={channel_median_ctr:.4f}")
-    print(f"  total_impressions={channel_total_impressions:,}  total_views={channel_total_views:,}")
+    # weighted CTR = sum(clicks) / sum(impressions)  (노출 가중 CTR)
+    df["clicks"]          = df["impressions"] * df["ctr"]
+    total_clicks          = df["clicks"].sum()
+    channel_weighted_ctr  = round(total_clicks / channel_total_impressions, 6) \
+                            if channel_total_impressions > 0 else 0.0
+
+    # median impressions (Video Diagnostics Engine 기준선)
+    median_impressions = round(df["impressions"].median(), 2)
+
+    print(f"  avg_ctr={channel_avg_ctr:.4f}  median_ctr={channel_median_ctr:.4f}  weighted_ctr={channel_weighted_ctr:.4f}")
+    print(f"  total_impressions={channel_total_impressions:,}  total_views={channel_total_views:,}  median_imp={median_impressions:,.0f}")
 
     # ── 5. Top / Low CTR 영상 ─────────────────────────────────────────────
     RANK_COLS = ["video_id", "ctr", "impressions", "views"]
@@ -113,8 +122,10 @@ def build_channel_ctr_kpi(spreadsheet):
         ["metric",                    "value"],
         ["channel_avg_ctr",           channel_avg_ctr],
         ["channel_median_ctr",        channel_median_ctr],
+        ["channel_weighted_ctr",      channel_weighted_ctr],
         ["channel_total_impressions", channel_total_impressions],
         ["channel_total_views",       channel_total_views],
+        ["median_impressions",        median_impressions],
         ["valid_video_count",         len(df)],
         ["generated_at",              now],
     ]
