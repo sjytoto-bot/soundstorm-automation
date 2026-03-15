@@ -662,6 +662,13 @@ def main(manual_mode=False, dry_run=False):
         except Exception as e:
             print(f"  ⚠️  Video_Diagnostics 생성 실패 (비치명적): {e}")
 
+        # STEP 4 — Reference Videos
+        try:
+            from analytics.reference_engine import build_reference_videos
+            build_reference_videos(ss)
+        except Exception as e:
+            print(f"  ⚠️  Reference_Videos 생성 실패 (비치명적): {e}")
+
     # ── 지표 재계산 ───────────────────────────────────────────────────────────
     if updated > 0 and not dry_run:
         trigger_recalculate_metrics()
