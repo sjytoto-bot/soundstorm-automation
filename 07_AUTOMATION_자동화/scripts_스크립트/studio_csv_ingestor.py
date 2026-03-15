@@ -633,6 +633,20 @@ def main(manual_mode=False, dry_run=False):
     except Exception as e:
         print(f"  ⚠️  Thumbnail_Analysis 동기화 실패 (비치명적): {e}")
 
+    # ── Channel CTR KPI 시트 생성 ────────────────────────────────────────────
+    if updated > 0 and not dry_run:
+        print("\n📊 Channel_CTR_KPI 생성 중...")
+        try:
+            sys.path.insert(0, AUTO_ROOT)
+            from analytics.channel_ctr_engine import build_channel_ctr_kpi
+            scopes_sheet = ['https://www.googleapis.com/auth/spreadsheets']
+            creds_sheet  = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=scopes_sheet)
+            gc           = gspread.authorize(creds_sheet)
+            ss           = gc.open_by_key(SPREADSHEET_ID)
+            build_channel_ctr_kpi(ss)
+        except Exception as e:
+            print(f"  ⚠️  Channel_CTR_KPI 생성 실패 (비치명적): {e}")
+
     # ── 지표 재계산 ───────────────────────────────────────────────────────────
     if updated > 0 and not dry_run:
         trigger_recalculate_metrics()
