@@ -37,6 +37,7 @@ jobs:
           python "07_AUTOMATION_자동화/scripts_스크립트/studio_csv_ingestor.py" --manual
 
       - name: Run Analytics Snapshot Engine
+        continue-on-error: true  # 파일 미존재 시 워크플로우 실패 방지
         env:
           SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
