@@ -442,7 +442,16 @@ def sync_thumbnail_analysis_ctr(reach_map, dry_run=False):
 
     idx_video_id = headers.index('video_id')
 
-    # impressions / ctr 컬럼 없으면 자동 추가
+    # impressions / ctr 컬럼 없으면 자동 추가 (시트 크기 먼저 확장)
+    new_cols_needed = sum([
+        1 for col in ('impressions', 'ctr') if col not in headers
+    ])
+    if new_cols_needed > 0 and not dry_run:
+        required_cols = len(headers) + new_cols_needed
+        if ws.col_count < required_cols:
+            ws.resize(rows=ws.row_count, cols=required_cols)
+            print(f"  📐 시트 크기 확장: cols → {required_cols}")
+
     if 'impressions' not in headers:
         print(f"  🆕 '{THUMB_SHEET}'에 'impressions' 컬럼 추가")
         if not dry_run:
