@@ -1,0 +1,44 @@
+name: Reach Data Sync (Studio CSV)
+
+# 로컬 Mac에서 CSV를 다운로드하고 커밋하면 이 워크플로우가 실행된다.
+# CSV 다운로드는 로컬에서만 수행 (CDP 방식, 로그인된 Chrome 필요).
+on:
+  push:
+    paths:
+      - "07_AUTOMATION_자동화/youtube_exports/studio_reach_report.csv"
+  workflow_dispatch:  # 수동 실행 버튼
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  ingest-reach-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r "07_AUTOMATION_자동화/requirements.txt"
+
+      - name: Run Studio CSV Ingestor
+        env:
+          SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: |
+          python "07_AUTOMATION_자동화/scripts_스크립트/studio_csv_ingestor.py" --manual
+
+      - name: Run Analytics Snapshot Engine
+        env:
+          SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: |
+          python "07_AUTOMATION_자동화/engine/analytics_snapshot_engine.py"
