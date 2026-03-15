@@ -593,7 +593,9 @@ def main():
         existing_headers = list(COLUMN_DEFAULTS.keys()) + ['썸네일URL']
 
     # [v15.4] impressions / ctr 보존: overwrite 전 기존 시트 값 읽기
-    # studio_csv_ingestor.py 가 기록한 CTR 값이 덮어써지는 것을 방지한다.
+    # fetch_video_ctr_map() 은 API 제한으로 항상 {} 반환 → master_rows 의
+    # impressions/ctr 가 항상 0 으로 채워진다.
+    # clear() + update() 전에 기존 시트 값을 읽어 df_master 에 직접 복원한다.
     _REACH_COLS = ('impressions', 'ctr')
     existing_reach_map = {}  # {video_id: {'impressions': val, 'ctr': val}}
     try:
@@ -609,16 +611,18 @@ def main():
     except Exception as _e:
         print(f"  ⚠️  [Master] 기존 reach 값 로드 실패 (계속 진행): {_e}")
 
-    # 1) 기본값 적용 (impressions / ctr 는 기존 시트 값 우선 보존)
+    # impressions / ctr: df_master 에 이미 0 으로 존재하므로 컬럼 부재 체크 없이 직접 복원
+    if existing_reach_map:
+        for col in _REACH_COLS:
+            df_master[col] = df_master['video_id'].apply(
+                lambda vid, c=col: existing_reach_map.get(str(vid).strip(), {}).get(c, 0)
+            )
+        print(f"  🔒 [Master] impressions/ctr 기존 시트 값으로 복원 ({len(existing_reach_map)}개)")
+
+    # 1) 기본값 적용 (impressions / ctr 는 위에서 이미 처리됨)
     for col, default in COLUMN_DEFAULTS.items():
         if col not in df_master.columns:
-            if col in _REACH_COLS and existing_reach_map:
-                df_master[col] = df_master['video_id'].apply(
-                    lambda vid: existing_reach_map.get(str(vid).strip(), {}).get(col, default)
-                )
-                print(f"  🔒 [Master] '{col}' 컬럼 기존 값 보존 ({len(existing_reach_map)}개)")
-            else:
-                df_master[col] = default
+            df_master[col] = default
             
     # 2) 시트의 기존 헤더 중 df_master에 없는 컬럼이 있다면 빈 값으로 추가하여 구조 보존
     for col in existing_headers:
