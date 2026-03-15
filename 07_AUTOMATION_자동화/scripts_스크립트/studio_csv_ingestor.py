@@ -398,6 +398,108 @@ def update_rawdata_master(reach_map, dry_run=False):
     return matched
 
 
+# ─── Thumbnail_Analysis CTR 동기화 ────────────────────────────────────────────
+
+def sync_thumbnail_analysis_ctr(reach_map, dry_run=False):
+    """
+    _RawData_Master에 기록된 impressions / ctr 값을 Thumbnail_Analysis 시트에 동기화한다.
+
+    동작:
+      - video_id 기준으로 Thumbnail_Analysis 행과 reach_map 매칭
+      - impressions / ctr 컬럼이 없으면 자동 추가
+      - 값을 직접 쓴다 (style_engine이 ws.clear() 로 수식을 지우므로 value 방식 사용)
+      - Thumbnail_Analysis 시트가 없으면 스킵 (style_engine 미실행 상태)
+
+    Args:
+        reach_map: {video_id: {'impressions': int, 'ctr': float}} — update_rawdata_master 와 동일 구조
+        dry_run:   True 이면 시트 쓰기 없이 로그만 출력
+    """
+    THUMB_SHEET = 'Thumbnail_Analysis'
+
+    scopes_sheet = ['https://www.googleapis.com/auth/spreadsheets']
+    creds_sheet  = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=scopes_sheet)
+    gc           = gspread.authorize(creds_sheet)
+    ss           = gc.open_by_key(SPREADSHEET_ID)
+
+    try:
+        ws = ss.worksheet(THUMB_SHEET)
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"  ℹ️  {THUMB_SHEET} 시트 없음 — style_engine 실행 후 자동 생성됩니다. 스킵.")
+        return 0
+
+    all_values = ws.get_all_values()
+    if not all_values:
+        print(f"  ℹ️  {THUMB_SHEET} 비어있음 — 스킵.")
+        return 0
+
+    headers = [h.strip() for h in all_values[0]]
+    print(f"  📋 {THUMB_SHEET} 헤더: {headers}")
+
+    # video_id 컬럼 필수
+    if 'video_id' not in headers:
+        print(f"  ❌ {THUMB_SHEET}에 video_id 컬럼 없음 — 스킵.")
+        return 0
+
+    idx_video_id = headers.index('video_id')
+
+    # impressions / ctr 컬럼 없으면 자동 추가
+    if 'impressions' not in headers:
+        print(f"  🆕 '{THUMB_SHEET}'에 'impressions' 컬럼 추가")
+        if not dry_run:
+            ws.update_cell(1, len(headers) + 1, 'impressions')
+        headers.append('impressions')
+
+    if 'ctr' not in headers:
+        print(f"  🆕 '{THUMB_SHEET}'에 'ctr' 컬럼 추가")
+        if not dry_run:
+            ws.update_cell(1, len(headers) + 1, 'ctr')
+        headers.append('ctr')
+
+    idx_impressions = headers.index('impressions')
+    idx_ctr         = headers.index('ctr')
+
+    cell_updates = []
+    matched  = 0
+    skipped  = 0
+
+    for row_idx, row in enumerate(all_values[1:], start=2):
+        if len(row) <= idx_video_id:
+            continue
+        vid = str(row[idx_video_id]).strip()
+        if not vid:
+            continue
+
+        if vid not in reach_map:
+            skipped += 1
+            continue
+
+        data = reach_map[vid]
+        cell_updates.append((row_idx, idx_impressions + 1, data['impressions']))
+        cell_updates.append((row_idx, idx_ctr         + 1, data['ctr']))
+        matched += 1
+
+    print(f"\n  ✅ {THUMB_SHEET} 매칭: {matched}개 | 스킵: {skipped}개")
+
+    if dry_run:
+        print(f"  ⚠️  [Dry-run] {THUMB_SHEET} 쓰기 건너뜀")
+        return matched
+
+    if not cell_updates:
+        print(f"  ⚠️  {THUMB_SHEET} 업데이트할 데이터 없음")
+        return 0
+
+    update_data = [
+        {
+            'range':  gspread.utils.rowcol_to_a1(r, c),
+            'values': [[v]],
+        }
+        for r, c, v in cell_updates
+    ]
+    ws.batch_update(update_data, value_input_option='USER_ENTERED')
+    print(f"  📤 {THUMB_SHEET} 업데이트 완료 ({matched}개 영상 / {len(cell_updates)}셀 갱신)")
+    return matched
+
+
 # ─── 지표 재계산 트리거 ───────────────────────────────────────────────────────
 
 def trigger_recalculate_metrics():
@@ -495,6 +597,13 @@ def main(manual_mode=False, dry_run=False):
     # ── _RawData_Master 업데이트 ──────────────────────────────────────────────
     print(f"\n📝 _RawData_Master 업데이트 중...")
     updated = update_rawdata_master(reach_map, dry_run=dry_run)
+
+    # ── Thumbnail_Analysis CTR 동기화 ─────────────────────────────────────────
+    print(f"\n🖼️  Thumbnail_Analysis CTR 동기화 중...")
+    try:
+        sync_thumbnail_analysis_ctr(reach_map, dry_run=dry_run)
+    except Exception as e:
+        print(f"  ⚠️  Thumbnail_Analysis 동기화 실패 (비치명적): {e}")
 
     # ── 지표 재계산 ───────────────────────────────────────────────────────────
     if updated > 0 and not dry_run:
