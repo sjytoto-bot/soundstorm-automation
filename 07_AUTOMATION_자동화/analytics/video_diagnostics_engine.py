@@ -30,7 +30,7 @@ OUTPUT_COLS = [
     "video_id", "impressions", "views", "ctr",
     "avg_watch_time", "retention_rate",
     "ctr_vs_channel", "impressions_vs_channel",
-    "diagnosis", "recommendation",
+    "diagnosis", "confidence", "recommendation",
 ]
 
 RECOMMENDATIONS = {
@@ -200,6 +200,15 @@ def build_video_diagnostics(spreadsheet):
 
     df["diagnosis"]      = diagnoses
     df["recommendation"] = recommendations
+
+    # confidence = max(ctr_gap, impression_gap) — 진단 신뢰도 (0~1+)
+    df["confidence"] = df.apply(
+        lambda r: round(max(
+            abs(r["ctr"] - median_ctr) / median_ctr if median_ctr > 0 else 0,
+            abs(r["impressions"] - median_imp) / median_imp if median_imp > 0 else 0,
+        ), 3),
+        axis=1,
+    )
 
     # 진단 요약 출력
     summary = df["diagnosis"].value_counts()

@@ -28,7 +28,7 @@ SOURCE_SHEET = "Video_Diagnostics"
 KPI_SHEET    = "Channel_CTR_KPI"
 TARGET_SHEET = "Reference_Videos"
 
-OUTPUT_COLS = ["video_id", "ctr", "impressions", "views", "reference_score"]
+OUTPUT_COLS = ["video_id", "ctr", "impressions", "views", "reference_score", "why"]
 
 
 # ─── 기준선 로드 ───────────────────────────────────────────────────────────────
@@ -73,6 +73,20 @@ def build_reference_videos(spreadsheet):
     print("\n⭐ [Reference Engine] Reference_Videos 생성 중...")
 
     # ── 1. 소스 시트 로드 ───────────────────────────────────────────────────
+    # Thumbnail_Analysis 에서 style_tag 맵 미리 로드 (why 생성용)
+    style_map = {}  # {video_id: style_tag}
+    try:
+        ws_thumb = spreadsheet.worksheet("Thumbnail_Analysis")
+        thumb_records = ws_thumb.get_all_records()
+        for r in thumb_records:
+            vid = str(r.get("video_id", "")).strip()
+            tag = str(r.get("style_tag", "")).strip()
+            if vid and tag:
+                style_map[vid] = tag
+        print(f"  🖼️  style_map 로드: {len(style_map)}개")
+    except Exception:
+        pass  # Thumbnail_Analysis 없어도 계속
+
     try:
         ws_src = spreadsheet.worksheet(SOURCE_SHEET)
     except Exception as e:
@@ -128,7 +142,24 @@ def build_reference_videos(spreadsheet):
         (df_ref["ctr"] / median_ctr) * np.log10(df_ref["impressions"])
     ).round(4)
 
-    # ── 7. TOP 10 정렬 ────────────────────────────────────────────────────
+    # ── 7. why 생성 ───────────────────────────────────────────────────────
+    def _make_why(row):
+        vid       = str(row["video_id"])
+        ctr_ratio = row["ctr"] / median_ctr if median_ctr > 0 else 0
+        style     = style_map.get(vid, "")
+        imp       = row["impressions"]
+
+        if style and "dark" in style.lower():
+            return "dark high contrast thumbnail"
+        if ctr_ratio > 1.5:
+            return "strong early CTR"
+        if imp > 3000:
+            return "algorithm pickup"
+        return "above-median CTR + impressions"
+
+    df_ref["why"] = df_ref.apply(_make_why, axis=1)
+
+    # ── 8. TOP 10 정렬 ────────────────────────────────────────────────────
     top10 = (
         df_ref.sort_values(by="reference_score", ascending=False)
               .head(10)[OUTPUT_COLS]

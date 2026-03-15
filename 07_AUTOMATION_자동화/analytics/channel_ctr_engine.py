@@ -126,7 +126,7 @@ def build_channel_ctr_kpi(spreadsheet):
         ["channel_total_impressions", channel_total_impressions],
         ["channel_total_views",       channel_total_views],
         ["median_impressions",        str(int(median_impressions))],
-        ["valid_video_count",         len(df)],
+        ["video_count",               len(df)],
         ["generated_at",              now],
     ]
     ws.update(range_name="A1", values=summary_rows, value_input_option="RAW")
