@@ -2,15 +2,12 @@ name: YouTube Data Sync
 
 on:
   schedule:
-    # 30분마다 실행 (UTC 기준) — GitHub throttle 보완용
+    # 듀얼 cron — throttle 확률 분산 (:00/:30 + :15/:45)
     - cron: "*/30 * * * *"
+    - cron: "15 * * * *"
   push:
     branches:
-      - main
-    paths:
-      - "07_AUTOMATION_자동화/scripts_스크립트/api_data_shuttler.py"
-      - "07_AUTOMATION_자동화/requirements.txt"
-      - ".github/workflows/youtube-data-sync.yml"
+      - main   # paths 필터 제거 — main push 시 항상 실행
   workflow_dispatch:  # 수동 실행 버튼
 
 env:

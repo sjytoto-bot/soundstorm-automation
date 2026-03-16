@@ -459,17 +459,12 @@ def main():
             print(f"⚠️ 검색어 상세 수집 건너뜀: {e}")
 
         # 2-2. 외부 유입 상세 수집 (EXTERNAL Detail)
+        # [v10.1 NOTE] EXT_URL + insightTrafficSourceDetail 조합은 YT Analytics API v2에서
+        # 지원되지 않아 항상 400 에러 반환 → 쿼리 건너뜀
         try:
-            # [v12.7] insightTrafficSourceDetail은 반드시 Type(EXT_URL 등)을 필터로 지정해야 함
-            ext_detail_req = analytics.reports().query(
-                ids='channel==mine',
-                startDate=start_date_90,
-                endDate=end_date,
-                metrics='views',
-                dimensions='insightTrafficSourceDetail',
-                filters='insightTrafficSourceType==EXT_URL'
-            )
-            ext_detail_resp = execute_query_with_retry(ext_detail_req, "ExtUrlDetail")
+            ext_detail_resp = None  # EXT_URL 조합 미지원 — 스킵
+            print("  [SKIP] EXT_URL + insightTrafficSourceDetail 조합 미지원 (API 400)")
+            ext_detail_resp = None
             
             # Python 레벨에서 도메인 필터링 및 정렬 (Post-processing)
             raw_ext_rows = ext_detail_resp.get('rows', []) if ext_detail_resp else []
@@ -515,7 +510,8 @@ def main():
     # 4. [v13.2] EXTERNAL_DETAIL 전략 데이터 수집 (Type별 필터 루프 - API 공식 스펙 준수)
     # insightTrafficSourceDetail은 반드시 insightTrafficSourceType 필터와 함께 사용해야 함
     # YT_SEARCH는 이미 블록 2-1에서 KEYWORD로 수집하므로 제외
-    DETAIL_SOURCE_TYPES = ['RELATED_VIDEO', 'PLAYLIST', 'SUBSCRIBER', 'NOTIFICATION', 'YT_CHANNEL']
+    # [v10.2 NOTE] PLAYLIST, NOTIFICATION은 insightTrafficSourceDetail 조합 미지원 → 400 에러
+    DETAIL_SOURCE_TYPES = ['RELATED_VIDEO', 'SUBSCRIBER', 'YT_CHANNEL']
     
     for src_type in DETAIL_SOURCE_TYPES:
         try:
@@ -550,11 +546,25 @@ def main():
     
     print(f"📊 EXTERNAL_DETAIL 수집 루프 완료")
 
-    # 4. 구글 시트 전송
+    # 4. 구글 시트 전송 (gspread 500 일시적 오류 재시도 포함)
     scopes_sheet = ['https://www.googleapis.com/auth/spreadsheets']
     creds_sheet = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=scopes_sheet)
     gc = gspread.authorize(creds_sheet)
-    ss = gc.open_by_key(SPREADSHEET_ID)
+
+    ss = None
+    for _attempt in range(4):
+        try:
+            ss = gc.open_by_key(SPREADSHEET_ID)
+            break
+        except Exception as _e:
+            if _attempt < 3:
+                wait = 2 ** _attempt  # 1, 2, 4초
+                print(f"  ⚠️ [Sheets] open_by_key 실패 (시도 {_attempt+1}/4), {wait}초 후 재시도: {_e}")
+                time.sleep(wait)
+            else:
+                raise
+    if ss is None:
+        raise RuntimeError("Google Sheets 연결 4회 실패 — 종료")
     
     # [v10.3] 컬럼 순서 및 기본값 정의 (Type Safety & Schema Enforcement)
     COLUMN_DEFAULTS = {
