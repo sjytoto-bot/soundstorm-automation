@@ -403,7 +403,7 @@ def main():
                 'impressions': ctr_metrics['impressions'],
                 'ctr': ctr_metrics['ctr'],
                 'youtube_title': snippet['title'],
-                'data_fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'data_fetched_at': (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S'),
                 '썸네일URL': thumbnail_url
             })
             print(f".", end='', flush=True)
@@ -657,8 +657,9 @@ def main():
     if full_period_rows:
         # [v13.0] run_id / 날짜 메타 컬럼을 각 행에 추가 (추적 가능성 확보)
         import uuid
-        run_id = datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + str(uuid.uuid4())[:8]
-        fetched_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        _now_kst = datetime.utcnow() + timedelta(hours=9)
+        run_id = _now_kst.strftime('%Y%m%d_%H%M%S') + '_' + str(uuid.uuid4())[:8]
+        fetched_at = _now_kst.strftime('%Y-%m-%d %H:%M:%S')
         
         for r in full_period_rows:
             r['run_id']     = run_id
@@ -770,7 +771,7 @@ def main():
         ]
 
         kpi_data = {
-            'date': datetime.today().strftime('%Y-%m-%d'),
+            'date': (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d'),
             'subscribers': channel_subscribers,
             'views_30d': views_30d,
             'avg_views': avg_views,
