@@ -13,6 +13,10 @@ on:
 env:
   PYTHON_VERSION: "3.11"
 
+permissions:
+  contents: read
+  issues: write   # 실패 시 GitHub Issue 자동 생성용
+
 jobs:
   sync-youtube-data:
     runs-on: ubuntu-latest
@@ -40,3 +44,67 @@ jobs:
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         run: |
           python 07_AUTOMATION_자동화/scripts_스크립트/api_data_shuttler.py
+
+      # ── 실패 감지: 이슈 생성 + (선택) Slack ──────────────────────────────────
+      - name: Notify on failure — GitHub Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo ${{ github.repository }} \
+            --label "sync-failure" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+          if [ -z "$EXISTING" ]; then
+            gh issue create \
+              --repo ${{ github.repository }} \
+              --title "❌ YouTube Sync 실패 — $(date -u '+%Y-%m-%d %H:%M UTC')" \
+              --body "## 원인 요약
+          GitHub Actions YouTube Data Sync 실패.
+
+          **주요 원인**: Google OAuth 토큰 만료 또는 인증 오류
+
+          ## 즉시 조치
+          1. 로컬에서 \`python 07_AUTOMATION_자동화/scripts_스크립트/api_data_shuttler.py\` 실행 (브라우저 로그인)
+          2. \`python 07_AUTOMATION_자동화/scripts_스크립트/export_secrets.py\` 실행 후 \`GOOGLE_TOKEN_B64\` 값 복사
+          3. GitHub → Settings → Secrets → \`GOOGLE_TOKEN_B64\` 업데이트
+          4. Actions 탭 → \`youtube-data-sync\` → Re-run
+
+          **Run ID**: ${{ github.run_id }}
+          **Triggered by**: ${{ github.event_name }}" \
+              --label "sync-failure"
+          else
+            gh issue comment "$EXISTING" \
+              --repo ${{ github.repository }} \
+              --body "🔁 동일 오류 재발 — Run ID: ${{ github.run_id }} ($(date -u '+%Y-%m-%d %H:%M UTC'))"
+          fi
+
+      - name: Notify on failure — Slack (선택)
+        if: failure() && env.SLACK_WEBHOOK != ''
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          curl -s -X POST "$SLACK_WEBHOOK" \
+            -H 'Content-type: application/json' \
+            --data "{\"text\":\"❌ *YouTube Sync 실패* (OAuth 만료 가능)\n• Run: ${{ github.run_id }}\n• 조치: GOOGLE_TOKEN_B64 갱신 필요\"}"
+
+      - name: Close failure issue on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo ${{ github.repository }} \
+            --label "sync-failure" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" \
+              --repo ${{ github.repository }} \
+              --comment "✅ 동기화 정상 복구 — Run ID: ${{ github.run_id }}"
+          fi
