@@ -8,10 +8,15 @@ on:
   push:
     branches:
       - main   # paths 필터 제거 — main push 시 항상 실행
-  workflow_dispatch:  # 수동 실행 버튼
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: 'cron or dispatch'
+        default: 'dispatch'
 
 env:
   PYTHON_VERSION: "3.11"
+  TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || 'cron' }}
 
 permissions:
   contents: read
