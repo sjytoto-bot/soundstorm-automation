@@ -92,24 +92,77 @@ def get_usdkrw_rate():
         print(f"  ⚠️ 환율 조회 실패, 폴백 적용: {FALLBACK_RATE:,.0f} KRW ({e})")
         return FALLBACK_RATE
 
+def _refresh_creds_with_retry(creds, max_retries: int = 3) -> None:
+    """[v16.2] OAuth2 토큰 갱신 — 네트워크 오류 시 재시도 (최대 3회, 지수 백오프)"""
+    import google.auth.exceptions
+    for attempt in range(1, max_retries + 1):
+        try:
+            creds.refresh(Request())
+            print(f"  ✅ OAuth 토큰 갱신 완료 (시도 {attempt}/{max_retries})")
+            return
+        except google.auth.exceptions.TransportError as e:
+            wait = 15 * attempt  # 15s, 30s, 45s
+            if attempt < max_retries:
+                print(f"  ⚠️ 네트워크 오류 (시도 {attempt}/{max_retries}), {wait}초 후 재시도: {e}")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    f"❌ OAuth 토큰 갱신 {max_retries}회 모두 실패 (TransportError)\n"
+                    f"   원인: {e}\n"
+                    f"   → DNS 해석 실패 또는 인터넷 연결 불안정. 잠시 후 재실행하세요."
+                ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"❌ OAuth 토큰 갱신 실패 (비네트워크 오류)\n"
+                f"   원인: {e}\n"
+                f"   → refresh_token이 완전히 만료됐거나 권한 취소됨.\n"
+                f"   → 로컬에서 python api_data_shuttler.py 실행 후 export_secrets.py --push 실행하세요."
+            ) from e
+
+
+def _export_refreshed_token_for_ci() -> None:
+    """[v16.2] CI 환경에서 갱신된 token.pickle을 마커 + b64 파일로 저장
+    → 워크플로우가 GOOGLE_TOKEN_B64 Secret을 자동 업데이트할 수 있도록 신호 전달"""
+    marker_dir = Path('/tmp/soundstorm_creds')
+    marker_dir.mkdir(exist_ok=True)
+    (marker_dir / 'token_was_refreshed').touch()
+
+    # 갱신된 token.pickle을 base64 파일로도 저장 (gh secret set용)
+    token_path = marker_dir / 'token.pickle'
+    if token_path.exists():
+        import base64 as _b64
+        b64_val = _b64.b64encode(token_path.read_bytes()).decode()
+        (marker_dir / 'token_refreshed.b64').write_text(b64_val)
+        print("  📌 갱신된 토큰 마커 생성 → 워크플로우가 GOOGLE_TOKEN_B64 자동 업데이트 예정")
+
+
 def get_authenticated_service():
     creds = None
     if os.path.exists(TOKEN_PICKLE):
         with open(TOKEN_PICKLE, 'rb') as token:
             creds = pickle.load(token)
-    
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            # [v16.2] 네트워크 오류에 강한 재시도 갱신
+            _refresh_creds_with_retry(creds)
+            # CI 환경에서 갱신 성공 → 워크플로우용 마커 생성
+            if IS_CI:
+                _export_refreshed_token_for_ci()
         else:
             if IS_CI:
-                raise Exception("❌ [CI] token.pickle이 만료되었고 interactive 로그인 불가. 로컬에서 토큰 갱신 후 재업로드 필요.")
+                raise RuntimeError(
+                    "❌ [CI] token.pickle이 완전히 만료 (refresh_token 없음)\n"
+                    "   → 로컬에서 다음 순서로 갱신하세요:\n"
+                    "      1) python api_data_shuttler.py  (브라우저 로그인)\n"
+                    "      2) python export_secrets.py --push  (Secret 자동 업데이트)"
+                )
             flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET, SCOPES)
             creds = flow.run_local_server(port=0)
         # 토큰 저장 (CI에서는 /tmp에 저장)
         with open(TOKEN_PICKLE, 'wb') as token:
             pickle.dump(creds, token)
-            
+
     return build('youtube', 'v3', credentials=creds), build('youtubeAnalytics', 'v2', credentials=creds)
 
 def execute_query_with_retry(request, label="Query"):
@@ -259,6 +312,359 @@ def fetch_video_ctr_map(analytics, end_dt):
     # for individual channels (channel==mine). Skipping to avoid quota waste and 400 errors.
     # print("  📅 [Analytics] Video CTR Batch Query SKIPPED (API Access Restriction)")
     return {}
+
+# ================================================================
+# [Final Layer Sync v2] _RawData_Master → SS_음원마스터_최종
+# Apps Script syncMasterV10() 100% 동일 구현
+#   - video_id 기준 매칭 + 신규 행 APPEND
+#   - 보호 컬럼 (곡명, 상품ID, 음원파일, 영상파일) 절대 쓰기 금지
+#   - 셀 단위 batch_update (clear/setValues 금지)
+#   - 계산: retention / diffDays / dailyWatch / valueScore — Apps Script 동일
+#   - 등급: retentionGrade (0.45/0.3) / assetGrade (5/2) — Apps Script 동일
+#   - 포맷: formatDuration(runtime_sec) → "2:09" / "1:02:33"
+#   - URL 생성: https://www.youtube.com/watch?v={video_id}
+#   - 정렬: 게시일 기준 내림차순 (Apps Script sort와 동일)
+#   - C1 타임스탬프: data_fetched_at | 상태: SUCCESS/FAIL
+# ================================================================
+
+def _format_duration(total_sec):
+    """Apps Script formatDuration() 완전 동일: 2:09 / 1:02:33"""
+    try:
+        total_sec = int(float(total_sec))
+    except (TypeError, ValueError):
+        return "0:00"
+    if total_sec <= 0:
+        return "0:00"
+    h = total_sec // 3600
+    m = (total_sec % 3600) // 60
+    s = total_sec % 60
+    if h > 0:
+        return f"{h}:{m:02}:{s:02}"
+    return f"{m}:{s:02}"
+
+
+def sync_final_layer(ss, master_rows):
+    """
+    _RawData_Master(source) → SS_음원마스터_최종(final) 단방향 동기화.
+    Apps Script syncMasterV10() 결과와 100% 동일하게 동작한다.
+    """
+    FINAL_SHEET = 'SS_음원마스터_최종'
+
+    # ── 보호 컬럼 (절대 쓰기 금지 — Apps Script MANUAL_PROTECTED 동일) ───────────
+    PROTECTED = {'곡명', '상품ID', '음원파일', '영상파일'}
+
+    # ── Raw 컬럼 → Final 헤더 별칭 매핑 ─────────────────────────────────────────
+    # Apps Script updates{} 객체의 모든 항목 포함
+    SYNC_ALIASES = {
+        # 지표 (직접 복사)
+        'views':                ['views', '조회수'],
+        'likes':                ['likes', '좋아요'],
+        'comments':             ['comments', '댓글'],
+        'shares':               ['shares', '공유수'],
+        'subscribers_gained':   ['subscribers_gained', '구독자유입', '구독자증가'],
+        'total_watch_time_min': ['total_watch_time_min', '총시청시간(분)', '시청시간(분)'],
+        'avg_watch_time_sec':   ['avg_watch_time_sec', '평균시청시간(초)'],
+        'runtime_sec':          ['runtime_sec', '러닝타임(초)'],
+        'impressions':          ['impressions', '노출수'],
+        'ctr':                  ['ctr', 'CTR', '클릭률', 'CTR(%)'],
+        'upload_date':          ['upload_date', '게시일', '업로드일'],
+        # 메타 (직접 복사)
+        'youtube_title':        ['youtube_title', '유튜브_제목'],
+        '썸네일URL':            ['썸네일URL', '썸네일url'],
+    }
+
+    # ── 계산·조합 컬럼 → Final 헤더 별칭 매핑 ───────────────────────────────────
+    DERIVED_ALIASES = {
+        # 기존 파생 지표
+        '좋아요율':           ['좋아요율'],
+        '일평균시청시간(분)': ['일평균시청시간(분)', '일평균시청시간'],
+        '시청유지밀도':       ['시청유지밀도'],
+        '시간보정유지가치':   ['시간보정유지가치'],
+        # Apps Script 추가 항목
+        '업로드경과일수':     ['업로드경과일수'],
+        '시청유지등급':       ['시청유지등급'],
+        '자산등급':           ['자산등급'],
+        # 포맷·조합 컬럼
+        '러닝타임':           ['러닝타임'],
+        '유튜브URL':          ['유튜브URL'],
+    }
+
+    print(f"\n🔗 [FinalLayerSync v2] '{FINAL_SHEET}' 동기화 시작 (Apps Script 동일 모드)...")
+
+    try:
+        ws_final = ss.worksheet(FINAL_SHEET)
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"  ⚠️  '{FINAL_SHEET}' 시트 없음 — 스킵")
+        return 0
+
+    # ── Step 1: Final 시트 전체 읽기 ────────────────────────────────────────────
+    all_values = ws_final.get_all_values()
+    if not all_values:
+        print(f"  ⚠️  '{FINAL_SHEET}' 비어있음 — 스킵")
+        return 0
+
+    # ── Step 2: 헤더 행 자동 감지 ───────────────────────────────────────────────
+    header_row_idx = None
+    for i, row in enumerate(all_values[:3]):
+        if any(str(c).strip().lower() in ('video_id', 'videoid', '영상id') for c in row):
+            header_row_idx = i
+            break
+
+    if header_row_idx is None:
+        raise Exception(
+            f"CRITICAL: video_id column not found in '{FINAL_SHEET}' "
+            f"(탐색 범위 1~3행 — 헤더 이동 또는 셀 병합 확인)"
+        )
+
+    headers    = [h.strip() for h in all_values[header_row_idx]]
+    data_start = header_row_idx + 1  # 0-indexed 데이터 첫 행
+
+    vid_col_idx = next(
+        (i for i, h in enumerate(headers) if h.lower() in ('video_id', 'videoid', '영상id')),
+        None
+    )
+    if vid_col_idx is None:
+        raise Exception(
+            f"CRITICAL: video_id column not found in '{FINAL_SHEET}' headers "
+            f"(헤더 행 {header_row_idx + 1}행 발견됐으나 video_id 컬럼 없음)"
+        )
+
+    print(f"  🔑 video_id 컬럼: {vid_col_idx + 1}번 열 "
+          f"({gspread.utils.rowcol_to_a1(1, vid_col_idx + 1)[:-1]}열)")
+
+    # ── Step 3: 헤더 ↔ 컬럼 인덱스 맵 구축 ─────────────────────────────────────
+    header_col_map = {h: (idx + 1) for idx, h in enumerate(headers)}
+
+    # raw → final 1-indexed 매핑 (보호 컬럼 이중 차단)
+    raw_to_col = {}
+    for raw_col, aliases in SYNC_ALIASES.items():
+        for alias in aliases:
+            if alias in header_col_map and alias not in PROTECTED:
+                raw_to_col[raw_col] = header_col_map[alias]
+                break
+
+    # 파생 → final 1-indexed 매핑
+    derived_col = {}
+    for name, aliases in DERIVED_ALIASES.items():
+        for alias in aliases:
+            if alias in header_col_map and alias not in PROTECTED:
+                derived_col[name] = header_col_map[alias]
+                break
+
+    print(f"  📋 헤더 위치: {header_row_idx + 1}행 | 데이터 시작: {data_start + 1}행")
+    print(f"  🔗 동기화 컬럼: {len(raw_to_col)}개 raw + {len(derived_col)}개 파생·조합")
+
+    # UNMAPPED 로그
+    unmapped = [k for k in {**SYNC_ALIASES, **DERIVED_ALIASES} if k not in {**raw_to_col, **derived_col}]
+    if unmapped:
+        print(f"  ⚠️  Unmapped columns: {unmapped}")
+
+    # ── Risk 3: 파생 지표 수식 기반 여부 감지 ────────────────────────────────────
+    formula_based_derived = set()
+    if len(all_values) > data_start:
+        first_data_row = all_values[data_start]
+        for name, col_1idx in derived_col.items():
+            col_0idx = col_1idx - 1
+            if col_0idx < len(first_data_row):
+                cell_val = str(first_data_row[col_0idx]).strip()
+                if cell_val.startswith('='):
+                    formula_based_derived.add(name)
+                    print(f"  ⚠️  [수식감지] '{name}' 수식 기반 → 코드 쓰기 스킵")
+
+    # ── _RawData_Master lookup ───────────────────────────────────────────────────
+    master_lookup = {
+        str(r.get('video_id', '')).strip(): r
+        for r in master_rows
+        if str(r.get('video_id', '')).strip()
+    }
+
+    # ── 공통 계산 함수 (Apps Script 완전 동일) ───────────────────────────────────
+    def compute_metrics(raw):
+        """Apps Script syncMasterV10() 계산 블록과 동일한 로직"""
+        views         = int(float(raw.get('views', 0) or 0))
+        likes         = int(float(raw.get('likes', 0) or 0))
+        total_watch   = float(raw.get('total_watch_time_min', 0) or 0)
+        avg_watch_sec = float(raw.get('avg_watch_time_sec', 0) or 0)
+        runtime_sec   = float(raw.get('runtime_sec', 0) or 0)
+        upload_date   = raw.get('upload_date', '')
+
+        # diffDays = Math.max(1, Math.floor((today - uDate) / ms_per_day))
+        days_since = 1
+        if upload_date:
+            try:
+                upload_dt  = datetime.strptime(str(upload_date)[:10], '%Y-%m-%d')
+                days_since = max(1, (datetime.today() - upload_dt).days)
+            except Exception:
+                pass
+
+        # retention = avgSec / runtimeSec
+        retention = (avg_watch_sec / runtime_sec) if runtime_sec > 0 else 0
+
+        # dailyWatch = watchMin / diffDays
+        daily_watch = total_watch / days_since
+
+        # valueScore = retention * dailyWatch
+        value_score = retention * daily_watch
+        if not (value_score == value_score):  # isFinite 체크
+            value_score = 0
+
+        # 좋아요율
+        like_rate = (likes / views) if views > 0 else 0
+
+        # 등급 계산 — Apps Script ASSET_GRADE {HIGH:5, MID:2}
+        retention_grade = '높음' if retention >= 0.45 else ('중간' if retention >= 0.3 else '낮음')
+        asset_grade     = '높음' if value_score >= 5   else ('중간' if value_score >= 2 else '낮음')
+
+        return {
+            'views':            views,
+            'likes':            likes,
+            'total_watch':      total_watch,
+            'avg_watch_sec':    avg_watch_sec,
+            'runtime_sec':      runtime_sec,
+            'upload_date':      upload_date,
+            'days_since':       days_since,
+            'retention':        retention,
+            'daily_watch':      daily_watch,
+            'value_score':      value_score,
+            'like_rate':        like_rate,
+            'retention_grade':  retention_grade,
+            'asset_grade':      asset_grade,
+        }
+
+    # ── Step 4: UPDATE — 기존 행 순회 ───────────────────────────────────────────
+    cell_updates   = []
+    matched        = 0
+    skipped        = 0
+    final_ids_seen = set()
+
+    for row_0idx, row in enumerate(all_values[data_start:], start=data_start):
+        sheet_row = row_0idx + 1
+
+        if len(row) <= vid_col_idx:
+            continue
+        vid = str(row[vid_col_idx]).strip()
+        if not vid:
+            continue
+
+        final_ids_seen.add(vid)
+        raw = master_lookup.get(vid)
+        if not raw:
+            skipped += 1
+            continue
+
+        matched += 1
+        m = compute_metrics(raw)
+
+        def _upd(col_1idx, val):
+            cell_updates.append({
+                'range':  gspread.utils.rowcol_to_a1(sheet_row, col_1idx),
+                'values': [[val]],
+            })
+
+        # Raw 컬럼 직접 복사
+        for raw_col, final_col in raw_to_col.items():
+            _upd(final_col, raw.get(raw_col, ''))
+
+        # 파생·조합 컬럼 (수식 기반 제외)
+        def _d(name, val):
+            if name in derived_col and name not in formula_based_derived:
+                _upd(derived_col[name], val)
+
+        _d('좋아요율',           round(m['like_rate'], 4))
+        _d('일평균시청시간(분)', round(m['daily_watch'], 3))
+        _d('시청유지밀도',       m['retention'])
+        _d('시간보정유지가치',   m['value_score'])
+        _d('업로드경과일수',     m['days_since'])
+        _d('시청유지등급',       m['retention_grade'])
+        _d('자산등급',           m['asset_grade'])
+        _d('러닝타임',           _format_duration(m['runtime_sec']))
+        _d('유튜브URL',          f"https://www.youtube.com/watch?v={vid}")
+
+    print(f"  ✅ 매칭: {matched}개 | 스킵: {skipped}개 (Final 전용 행)")
+
+    if not cell_updates:
+        print(f"  ℹ️  업데이트할 셀 없음 (video_id 매칭 0건)")
+        return 0
+
+    # ── Step 5: C1 타임스탬프 ───────────────────────────────────────────────────
+    latest_fetched_at = ''
+    for r in master_rows:
+        t = str(r.get('data_fetched_at', '') or '')
+        if t and (not latest_fetched_at or t > latest_fetched_at):
+            latest_fetched_at = t
+
+    sync_ran_at = (datetime.utcnow() + __import__('datetime').timedelta(hours=9)).strftime('%Y-%m-%d %H:%M') + ' KST'
+    c1_value    = f'데이터수집: {latest_fetched_at or "미확인"} | 동기화: {sync_ran_at} | 상태: SUCCESS'
+    cell_updates.insert(0, {'range': 'C1', 'values': [[c1_value]]})
+    print(f"  ⏱  C1: {c1_value}")
+
+    # ── Step 6: batch_update ─────────────────────────────────────────────────────
+    ws_final.batch_update(cell_updates, value_input_option='USER_ENTERED')
+    print(f"  📤 UPDATE 완료 — {matched}개 영상 / {len(cell_updates)}셀 갱신")
+
+    # ── Step 7: APPEND — Raw에 있고 Final에 없는 신규 영상 ──────────────────────
+    missing_ids = [v for v in master_lookup if v not in final_ids_seen]
+    appended = 0
+
+    for vid in sorted(missing_ids):
+        raw     = master_lookup[vid]
+        m       = compute_metrics(raw)
+        new_row = [''] * len(headers)
+
+        # video_id
+        new_row[vid_col_idx] = vid
+
+        # Raw 직접 복사
+        for raw_col, final_col in raw_to_col.items():
+            new_row[final_col - 1] = raw.get(raw_col, '')
+
+        # 파생·조합 (수식 기반 제외)
+        def _a(name, val):
+            if name in derived_col and name not in formula_based_derived:
+                new_row[derived_col[name] - 1] = val
+
+        _a('좋아요율',           round(m['like_rate'], 4))
+        _a('일평균시청시간(분)', round(m['daily_watch'], 3))
+        _a('시청유지밀도',       m['retention'])
+        _a('시간보정유지가치',   m['value_score'])
+        _a('업로드경과일수',     m['days_since'])
+        _a('시청유지등급',       m['retention_grade'])
+        _a('자산등급',           m['asset_grade'])
+        _a('러닝타임',           _format_duration(m['runtime_sec']))
+        _a('유튜브URL',          f"https://www.youtube.com/watch?v={vid}")
+
+        ws_final.append_row(new_row, value_input_option='USER_ENTERED')
+        print(f"  ➕ [APPEND] {vid} | {raw.get('track_name', vid)} | 업로드: {m['upload_date']}")
+        appended += 1
+
+    if appended:
+        print(f"  ✅ {appended}개 신규 행 추가 완료")
+    else:
+        print(f"  ℹ️  신규 추가 영상 없음")
+
+    # ── Step 8: 정렬 — 게시일 기준 내림차순 (Apps Script sort 동일) ──────────────
+    date_col = header_col_map.get('게시일')
+    if date_col:
+        final_row_count = ws_final.row_count
+        # 실제 데이터 마지막 행 재계산 (APPEND 후 갱신)
+        actual_last = ws_final.get_all_values()
+        data_rows   = [r for r in actual_last[data_start:] if any(c.strip() for c in r)]
+        sort_count  = len(data_rows)
+        if sort_count > 1:
+            sort_range = ws_final.range(
+                data_start + 1, 1,
+                data_start + sort_count, len(headers)
+            )
+            # gspread sort: column 1-indexed, ascending=False
+            ws_final.sort(
+                (date_col, 'des'),
+                range=f"{gspread.utils.rowcol_to_a1(data_start + 1, 1)}:"
+                      f"{gspread.utils.rowcol_to_a1(data_start + sort_count, len(headers))}"
+            )
+            print(f"  📊 정렬 완료 — 게시일 내림차순 ({sort_count}행)")
+
+    return matched + appended
+
 
 def main():
     print("🚀 API-First 셔틀 v10.0 가동 시작...")
@@ -879,6 +1285,25 @@ def main():
             print(f"  ✅ {sheet_name} 갱신 완료 ({len(df_agg)}행)")
         except Exception as e:
             print(f"  ⚠️ {sheet_name} 갱신 실패: {e}")
+
+    # ================================================================
+    # [Final Layer Sync] _RawData_Master → SS_음원마스터_최종
+    # DATA_RULES v11.4: 보호 컬럼 제외, 셀 단위 갱신, 파생 지표 계산
+    # 비치명적 — 실패 시 전체 실행 영향 없음
+    # ================================================================
+    try:
+        sync_final_layer(ss, master_rows)
+    except Exception as _fls_err:
+        print(f"\n  ⚠️  [FinalLayerSync] 실패 (비치명적, 전체 실행 영향 없음): {_fls_err}")
+        # C1에 FAIL 상태 기록 (시트 접근 가능한 경우)
+        try:
+            _now_kst = datetime.utcnow().strftime('%Y-%m-%d %H:%M') + ' KST'
+            _ws_fail = ss.worksheet('SS_음원마스터_최종')
+            _sync_kst = (_now_kst)
+            _ws_fail.update('C1', [[f'동기화: {_sync_kst} | 상태: FAIL | {str(_fls_err)[:80]}']])
+            print(f"  ⏱  C1 FAIL 상태 기록 완료")
+        except Exception:
+            pass  # C1 기록 실패는 무시
 
     print(f"\n🔗 https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}")
     print("\n🎉 [최종 성공] SOUNDSTORM 자동수집 시스템이 모든 작업을 성공적으로 마쳤습니다!")
