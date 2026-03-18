@@ -5,7 +5,7 @@ import json
 import urllib.request
 import pandas as pd
 import isodate # [v10.2] 성능 최적화 (루프 밖으로 이동)
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -73,6 +73,50 @@ SCOPES = [
     'https://www.googleapis.com/auth/yt-analytics.readonly',
     'https://www.googleapis.com/auth/yt-analytics-monetary.readonly'
 ]
+
+def _purge_full_period(ws, columns, keep_days=90, threshold=3000):
+    """[v16.3] _RawData_FullPeriod 90일 Rolling Purge
+
+    - 전체 행 수가 threshold(3000) 미만이면 스킵 (API 호출 절약)
+    - fetched_at 기준으로 keep_days(90일) 이전 행 삭제
+    - 헤더 행은 항상 보존
+    """
+    all_rows = ws.get_all_values()
+    total = len(all_rows)  # 헤더 포함
+
+    if total < threshold:
+        print(f"  ℹ️  [FullPeriod Purge] {total - 1}행 — {threshold}행 미만, 스킵")
+        return
+
+    header = all_rows[0]
+    try:
+        idx_fetched = header.index('fetched_at')
+    except ValueError:
+        print("  ⚠️  [FullPeriod Purge] fetched_at 컬럼 없음 — 스킵")
+        return
+
+    cutoff = (datetime.now(timezone.utc) + timedelta(hours=9) - timedelta(days=keep_days))
+    kept = []
+    removed = 0
+    for row in all_rows[1:]:
+        val = row[idx_fetched] if len(row) > idx_fetched else ''
+        try:
+            row_dt = datetime.strptime(val[:19], '%Y-%m-%d %H:%M:%S')
+            if row_dt >= cutoff:
+                kept.append(row)
+            else:
+                removed += 1
+        except (ValueError, TypeError):
+            kept.append(row)  # 파싱 불가 행은 보존
+
+    if removed == 0:
+        print(f"  ℹ️  [FullPeriod Purge] 삭제 대상 없음 ({total - 1}행 모두 {keep_days}일 이내)")
+        return
+
+    ws.clear()
+    ws.update([header] + kept, value_input_option='USER_ENTERED')
+    print(f"  🗑️  [FullPeriod Purge] {removed}행 삭제 | {len(kept)}행 보존 ({keep_days}일 이내)")
+
 
 def get_usdkrw_rate():
     """[v14.3] USD/KRW 환율 자동 조회 (Open API + 폴백)"""
@@ -593,7 +637,7 @@ def sync_final_layer(ss, master_rows):
         if t and (not latest_fetched_at or t > latest_fetched_at):
             latest_fetched_at = t
 
-    sync_ran_at = (datetime.utcnow() + __import__('datetime').timedelta(hours=9)).strftime('%Y-%m-%d %H:%M') + ' KST'
+    sync_ran_at = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M') + ' KST'
     c1_value    = f'데이터수집: {latest_fetched_at or "미확인"} | 동기화: {sync_ran_at} | 상태: SUCCESS'
     cell_updates.insert(0, {'range': 'C1', 'values': [[c1_value]]})
     print(f"  ⏱  C1: {c1_value}")
@@ -809,7 +853,7 @@ def main():
                 'impressions': ctr_metrics['impressions'],
                 'ctr': ctr_metrics['ctr'],
                 'youtube_title': snippet['title'],
-                'data_fetched_at': (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S'),
+                'data_fetched_at': (datetime.now(timezone.utc) + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S'),
                 '썸네일URL': thumbnail_url
             })
             print(f".", end='', flush=True)
@@ -1063,7 +1107,7 @@ def main():
     if full_period_rows:
         # [v13.0] run_id / 날짜 메타 컬럼을 각 행에 추가 (추적 가능성 확보)
         import uuid
-        _now_kst = datetime.utcnow() + timedelta(hours=9)
+        _now_kst = datetime.now(timezone.utc) + timedelta(hours=9)
         run_id = _now_kst.strftime('%Y%m%d_%H%M%S') + '_' + str(uuid.uuid4())[:8]
         fetched_at = _now_kst.strftime('%Y-%m-%d %H:%M:%S')
         
@@ -1095,6 +1139,9 @@ def main():
         # 데이터 행만 Append (헤더 제외)
         ws_full.append_rows(df_full.values.tolist(), value_input_option='USER_ENTERED')
         print(f"📤 [FullPeriod] Append 완료 (run_id: {run_id[:15]}..., +{len(df_full)}행 추가)")
+
+        # [v16.3] 90일 Rolling Purge — 3000행 초과 시 오래된 행 삭제
+        _purge_full_period(ws_full, FULL_PERIOD_COLUMNS, keep_days=90, threshold=3000)
 
     # ================================================================
     # [v14.3] Channel_KPI 채널 KPI 시트 전송 (실제 API Revenue + 환율 자동 연동)
@@ -1177,7 +1224,7 @@ def main():
         ]
 
         kpi_data = {
-            'date': (datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d'),
+            'date': (datetime.now(timezone.utc) + timedelta(hours=9)).strftime('%Y-%m-%d'),
             'subscribers': channel_subscribers,
             'views_30d': views_30d,
             'avg_views': avg_views,
@@ -1297,7 +1344,7 @@ def main():
         print(f"\n  ⚠️  [FinalLayerSync] 실패 (비치명적, 전체 실행 영향 없음): {_fls_err}")
         # C1에 FAIL 상태 기록 (시트 접근 가능한 경우)
         try:
-            _now_kst = datetime.utcnow().strftime('%Y-%m-%d %H:%M') + ' KST'
+            _now_kst = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M') + ' KST'
             _ws_fail = ss.worksheet('SS_음원마스터_최종')
             _sync_kst = (_now_kst)
             _ws_fail.update('C1', [[f'동기화: {_sync_kst} | 상태: FAIL | {str(_fls_err)[:80]}']])
