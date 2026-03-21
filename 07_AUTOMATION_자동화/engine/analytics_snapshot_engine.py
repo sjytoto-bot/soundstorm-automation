@@ -286,8 +286,11 @@ def main(dry_run: bool = False) -> None:
             )
             print(f"✅ 새 시트 생성: {TARGET_SHEET}")
 
-        ws_target.clear()
+        # clear() → update() 사이 공백 제거: update 먼저, 초과 행 resize로 정리
+        # clear() 후 update() 방식은 fetch 타이밍에 따라 빈 데이터 반환 가능
         ws_target.update(output_rows, value_input_option="USER_ENTERED")
+        total_rows = max(len(output_rows) + 5, 10)
+        ws_target.resize(rows=total_rows)
         print(f"📤 Snapshot write complete : {data_row_count}행 → [{TARGET_SHEET}]")
 
     print("\n" + "=" * 60)
