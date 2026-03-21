@@ -24,6 +24,15 @@ RUN_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 CDP_PROFILE="$HOME/.soundstorm_chrome_cdp"
 CDP_CHROME_PID=""
 
+# ── 모드 파싱 ─────────────────────────────────────────────────────────────────
+# --mode=recent: 7일 단축 CSV 다운로드만 수행 (commit/push 없음)
+MODE="default"
+for arg in "$@"; do
+  case "$arg" in
+    --mode=recent) MODE="recent" ;;
+  esac
+done
+
 # ── 실패 핸들러 ──────────────────────────────────────────────────────────────
 on_error() {
   local step="$1"
@@ -83,13 +92,27 @@ _stop_cdp_chrome() {
 }
 
 echo "==============================" | tee -a "$LOG_FILE"
-echo "SOUNDSTORM Studio CSV 동기화 [$RUN_AT]" | tee -a "$LOG_FILE"
+echo "SOUNDSTORM Studio CSV 동기화 [$RUN_AT] [mode=$MODE]" | tee -a "$LOG_FILE"
 echo "==============================" | tee -a "$LOG_FILE"
 
 # ── CDP Chrome 시작 ───────────────────────────────────────────────────────────
 echo "" | tee -a "$LOG_FILE"
 echo "[0/3] CDP Chrome 시작 중..." | tee -a "$LOG_FILE"
 _start_cdp_chrome || on_error "Chrome 실행"
+
+# ── recent 모드: CSV만 다운로드 후 종료 (commit/push 없음) ────────────────────
+if [ "$MODE" = "recent" ]; then
+  echo "" | tee -a "$LOG_FILE"
+  echo "[recent] 7일 단축 CSV 다운로드 중..." | tee -a "$LOG_FILE"
+  RECENT_CSV="$SCRIPT_DIR/../youtube_exports/studio_reach_report_recent.csv"
+  if python3 "$SCRIPT_DIR/download_studio_csv.py" --mode=recent 2>&1 | tee -a "$LOG_FILE"; then
+    echo "  ✅ recent CSV 저장 완료: $RECENT_CSV" | tee -a "$LOG_FILE"
+  else
+    echo "  ❌ recent CSV 다운로드 실패" | tee -a "$LOG_FILE"
+  fi
+  _stop_cdp_chrome
+  exit 0
+fi
 
 # ── 1. CSV 다운로드 (재시도 3회) ─────────────────────────────────────────────
 echo "" | tee -a "$LOG_FILE"

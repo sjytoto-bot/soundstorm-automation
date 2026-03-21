@@ -1254,6 +1254,51 @@ def main():
         print(f"  ⚠️ Channel_KPI 전송 실패 (전체 실행 영향 없음): {e}")
 
     # ================================================================
+    # [Active Uploads] 48시간 이내 업로드 영상 → _Active_Uploads 시트 기록
+    # generate_active_uploads.py가 이 시트를 읽어 active_uploads.json 생성
+    # ================================================================
+    try:
+        _now_kst_dt = datetime.now(timezone.utc) + timedelta(hours=9)
+        _cutoff = (_now_kst_dt - timedelta(hours=48)).strftime('%Y-%m-%d')
+        _active = [
+            r for r in master_rows
+            if r.get('upload_date', '') >= _cutoff
+        ]
+        if _active:
+            print(f"\n⚡ [Active Uploads] 48시간 이내 영상 {len(_active)}개 감지")
+            _AU_COLS = ['video_id', 'title', 'upload_date', 'views', 'likes', 'impressions', 'ctr', 'fetched_at']
+            _fetched_at = _now_kst_dt.strftime('%Y-%m-%dT%H:%M:%S+09:00')
+            _au_rows = [_AU_COLS] + [
+                [
+                    r['video_id'],
+                    r.get('youtube_title', r.get('track_name', '')),
+                    r['upload_date'],
+                    r.get('views', 0),
+                    r.get('likes', 0),
+                    r.get('impressions', 0),
+                    r.get('ctr', 0),
+                    _fetched_at,
+                ]
+                for r in _active
+            ]
+            try:
+                _ws_au = ss.worksheet('_Active_Uploads')
+            except gspread.exceptions.WorksheetNotFound:
+                _ws_au = ss.add_worksheet('_Active_Uploads', 5000, len(_AU_COLS))
+                _ws_au.append_row(_AU_COLS, value_input_option='USER_ENTERED')
+            # append-only: 헤더 없으면 추가, 데이터는 항상 append
+            _existing_header = _ws_au.row_values(1)
+            if _existing_header != _AU_COLS:
+                _ws_au.clear()
+                _ws_au.append_row(_AU_COLS, value_input_option='USER_ENTERED')
+            _ws_au.append_rows(_au_rows[1:], value_input_option='USER_ENTERED')
+            print(f"  ✅ _Active_Uploads 갱신 완료 ({len(_active)}행)")
+        else:
+            print(f"\n⚡ [Active Uploads] 48시간 이내 신규 업로드 없음 — 스킵")
+    except Exception as e:
+        print(f"  ⚠️ _Active_Uploads 갱신 실패 (전체 실행 영향 없음): {e}")
+
+    # ================================================================
     # [Analytics Aggregation] 4개의 기간별 집계 시트 생성 (대시보드 KPI 용)
     # ================================================================
     print("\n📊 [Analytics Aggregation] 기간별 집계 데이터(7d, 30d, prev30, all) 생성 및 갱신 중...")
