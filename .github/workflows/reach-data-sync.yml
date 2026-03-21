@@ -25,7 +25,7 @@ env:
 jobs:
   ingest-reach-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -54,3 +54,13 @@ jobs:
           GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         run: |
           python "07_AUTOMATION_자동화/engine/analytics_snapshot_engine.py"
+
+      - name: Run API Data Shuttler (_VideoTraffic 동기화)
+        continue-on-error: true  # VideoTraffic 실패가 전체 워크플로우 블록하지 않도록
+        env:
+          SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
+          CLIENT_SECRET_B64:   ${{ secrets.CLIENT_SECRET_B64 }}
+          GOOGLE_TOKEN_B64:    ${{ secrets.GOOGLE_TOKEN_B64 }}
+          GOOGLE_SHEETS_ID:    ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: |
+          python "07_AUTOMATION_자동화/scripts_스크립트/api_data_shuttler.py"
