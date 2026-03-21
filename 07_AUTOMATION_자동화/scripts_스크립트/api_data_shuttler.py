@@ -292,6 +292,46 @@ def fetch_traffic_sources(analytics, end_dt):
     print(f"  [Analytics] Traffic rows: {len(rows)}")
     return [{'metric_type': 'traffic', 'dim_1': r[0], 'dim_2': '', 'value': r[1]} for r in rows]
 
+def fetch_video_traffic_sources_batch(analytics, video_ids: list, end_dt) -> list:
+    """최근 30일 이내 업로드 영상별 트래픽 소스 비율 수집 (영상당 API 쿼리 1회)"""
+    rows = []
+    end_date   = end_dt.strftime('%Y-%m-%d')
+    start_date = (end_dt - timedelta(days=30)).strftime('%Y-%m-%d')
+    fetched_at = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')
+
+    print(f"  📅 [VideoTraffic] 기간: {start_date} ~ {end_date} / 대상 영상: {len(video_ids)}개")
+    for vid in video_ids:
+        try:
+            req = analytics.reports().query(
+                ids='channel==mine',
+                startDate=start_date,
+                endDate=end_date,
+                metrics='views',
+                dimensions='insightTrafficSourceType',
+                filters=f'video=={vid}',
+                sort='-views'
+            )
+            resp = execute_query_with_retry(req, f"VideoTraffic:{vid}")
+            if not resp or not resp.get('rows'):
+                continue
+            api_rows = resp['rows']
+            total = sum(float(r[1]) for r in api_rows)
+            if total == 0:
+                continue
+            for r in api_rows:
+                rows.append({
+                    'video_id':       vid,
+                    'traffic_source': r[0],
+                    'views':          int(float(r[1])),
+                    'ratio':          round(float(r[1]) / total, 4),
+                    'fetched_at':     fetched_at,
+                })
+            print(f"  ✅ VideoTraffic:{vid} — {len(api_rows)}개 소스")
+        except Exception as e:
+            print(f"  [VideoTraffic Skip] {vid}: {e}")
+    return rows
+
+
 def fetch_countries(analytics, end_dt):
     start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
     end_date = end_dt.strftime('%Y-%m-%d')
@@ -1056,8 +1096,12 @@ def main():
     # fetch_video_ctr_map() 은 API 제한으로 항상 {} 반환 → master_rows 의
     # impressions/ctr 가 항상 0 으로 채워진다.
     # clear() + update() 전에 기존 시트 값을 읽어 df_master 에 직접 복원한다.
+    #
+    # [v15.5 Write Guard] get_all_records() 실패 시 clear() 자체를 건너뜀.
+    # 읽기 실패 상태에서 clear() 하면 기존 데이터 전체 손실 → 데이터 보호 우선.
     _REACH_COLS = ('impressions', 'ctr')
     existing_reach_map = {}  # {video_id: {'impressions': val, 'ctr': val}}
+    _reach_load_ok = True
     try:
         existing_rows = ws_master.get_all_records()
         for row in existing_rows:
@@ -1067,41 +1111,46 @@ def main():
                     'impressions': row.get('impressions', 0),
                     'ctr':         row.get('ctr', 0),
                 }
-        print(f"  📥 [Master] 기존 reach 값 로드: {len(existing_reach_map)}개 video_id")
+        print(f"  [Master] 기존 reach 값 로드: {len(existing_reach_map)}개 video_id")
     except Exception as _e:
-        print(f"  ⚠️  [Master] 기존 reach 값 로드 실패 (계속 진행): {_e}")
+        print(f"  CRITICAL [Master] reach 값 로드 실패 — write guard 발동, clear() 건너뜀: {_e}")
+        _reach_load_ok = False
 
-    # impressions / ctr: df_master 에 이미 0 으로 존재하므로 컬럼 부재 체크 없이 직접 복원
-    if existing_reach_map:
-        for col in _REACH_COLS:
-            df_master[col] = df_master['video_id'].apply(
-                lambda vid, c=col: existing_reach_map.get(str(vid).strip(), {}).get(c, 0)
-            )
-        print(f"  🔒 [Master] impressions/ctr 기존 시트 값으로 복원 ({len(existing_reach_map)}개)")
+    if not _reach_load_ok:
+        # 기존 데이터 보호: 읽기 실패 상태에서 전체 재기록 금지
+        print("  [Master] write guard: _RawData_Master 업데이트 중단 (기존 데이터 보존)")
+    else:
+        # impressions / ctr: df_master 에 이미 0 으로 존재하므로 컬럼 부재 체크 없이 직접 복원
+        if existing_reach_map:
+            for col in _REACH_COLS:
+                df_master[col] = df_master['video_id'].apply(
+                    lambda vid, c=col: existing_reach_map.get(str(vid).strip(), {}).get(c, 0)
+                )
+            print(f"  [Master] impressions/ctr 기존 시트 값으로 복원 ({len(existing_reach_map)}개)")
 
-    # 1) 기본값 적용 (impressions / ctr 는 위에서 이미 처리됨)
-    for col, default in COLUMN_DEFAULTS.items():
-        if col not in df_master.columns:
-            df_master[col] = default
-            
-    # 2) 시트의 기존 헤더 중 df_master에 없는 컬럼이 있다면 빈 값으로 추가하여 구조 보존
-    for col in existing_headers:
-        if col not in df_master.columns:
-            df_master[col] = ""
+        # 1) 기본값 적용 (impressions / ctr 는 위에서 이미 처리됨)
+        for col, default in COLUMN_DEFAULTS.items():
+            if col not in df_master.columns:
+                df_master[col] = default
 
-    # 3) df_master에만 존재하는 새 컬럼이 있다면 existing_headers에 추가
-    for col in df_master.columns:
-        if col not in existing_headers:
-            existing_headers.append(col)
-            
-    # 4) 실제 기록될 데이터프레임을 시트 헤더 순서와 정확하게 정렬
-    df_master = df_master.reindex(columns=existing_headers).fillna("")
-    
-    ws_master.clear() # 전체 값 안전 초기화 후 정렬된 df 통째로 덮어쓰기
-    
-    print(f"📌 [Master] 시트 Write 직전 데이터 행 수: {len(df_master)}행")
-    ws_master.update([df_master.columns.tolist()] + df_master.values.tolist())
-    print(f"📤 [Master] 실제 업데이트 완료 로그 출력 (총 {len(df_master)}행)")
+        # 2) 시트의 기존 헤더 중 df_master에 없는 컬럼이 있다면 빈 값으로 추가하여 구조 보존
+        for col in existing_headers:
+            if col not in df_master.columns:
+                df_master[col] = ""
+
+        # 3) df_master에만 존재하는 새 컬럼이 있다면 existing_headers에 추가
+        for col in df_master.columns:
+            if col not in existing_headers:
+                existing_headers.append(col)
+
+        # 4) 실제 기록될 데이터프레임을 시트 헤더 순서와 정확하게 정렬
+        df_master = df_master.reindex(columns=existing_headers).fillna("")
+
+        ws_master.clear()  # 전체 값 안전 초기화 후 정렬된 df 통째로 덮어쓰기
+
+        print(f"[Master] 시트 Write 직전 데이터 행 수: {len(df_master)}행")
+        ws_master.update([df_master.columns.tolist()] + df_master.values.tolist())
+        print(f"[Master] 업데이트 완료 (총 {len(df_master)}행)")
     
     # Update _RawData_FullPeriod (Append-Only 구조)
     if full_period_rows:
@@ -1297,6 +1346,38 @@ def main():
             print(f"\n⚡ [Active Uploads] 48시간 이내 신규 업로드 없음 — 스킵")
     except Exception as e:
         print(f"  ⚠️ _Active_Uploads 갱신 실패 (전체 실행 영향 없음): {e}")
+
+    # ================================================================
+    # [VideoTraffic] 최근 30일 이내 영상별 트래픽 소스 비율 수집 → _VideoTraffic 시트
+    # ================================================================
+    print("\n📊 [VideoTraffic] 영상별 트래픽 소스 수집 중...")
+    try:
+        _now_kst_vt  = datetime.now(timezone.utc) + timedelta(hours=9)
+        _cutoff_30d  = (_now_kst_vt - timedelta(days=30)).strftime('%Y-%m-%d')
+        _recent_vids = [
+            r['video_id'] for r in master_rows
+            if r.get('upload_date', '') >= _cutoff_30d and r.get('video_id', '')
+        ]
+        if _recent_vids:
+            vt_rows = fetch_video_traffic_sources_batch(analytics, _recent_vids, end_dt)
+            if vt_rows:
+                VT_COLS = ['video_id', 'traffic_source', 'views', 'ratio', 'fetched_at']
+                try:
+                    ws_vt = ss.worksheet('_VideoTraffic')
+                except gspread.exceptions.WorksheetNotFound:
+                    ws_vt = ss.add_worksheet('_VideoTraffic', 5000, len(VT_COLS))
+                ws_vt.clear()
+                ws_vt.update([VT_COLS] + [
+                    [r['video_id'], r['traffic_source'], r['views'], r['ratio'], r['fetched_at']]
+                    for r in vt_rows
+                ])
+                print(f"  ✅ _VideoTraffic 갱신 완료 ({len(vt_rows)}행, {len(_recent_vids)}개 영상)")
+            else:
+                print(f"  ℹ️  VideoTraffic 데이터 없음 (API 응답 0행)")
+        else:
+            print(f"  ℹ️  최근 30일 이내 업로드 영상 없음 — 스킵")
+    except Exception as e:
+        print(f"  ⚠️ _VideoTraffic 갱신 실패 (전체 실행 영향 없음): {e}")
 
     # ================================================================
     # [Analytics Aggregation] 4개의 기간별 집계 시트 생성 (대시보드 KPI 용)

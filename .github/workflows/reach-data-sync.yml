@@ -14,9 +14,11 @@ on:
     - cron: "0 13 * * *"   # 22:00 KST — 야간 재처리 (API 실패 복구)
   workflow_dispatch:
 
-# 중복 실행 방지 — 이전 실행 중이면 취소 후 신규 실행
+# 동시 실행 방지 — reach / youtube 워크플로우 간 _RawData_Master 동시 write 차단
+# youtube-data-sync.yml과 동일 그룹 공유 → 순차 실행 보장
+# cancel-in-progress: true — 중복 CSV push 시 이전 실행 취소 후 최신만 실행
 concurrency:
-  group: reach-data-sync
+  group: youtube-data-pipeline
   cancel-in-progress: true
 
 env:

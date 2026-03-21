@@ -7,7 +7,10 @@ on:
     - cron: "15 * * * *"
   push:
     branches:
-      - main   # paths 필터 제거 — main push 시 항상 실행
+      - main
+    paths-ignore:
+      # CSV 데이터 push는 reach-data-sync.yml 전용 — 동시 실행 시 _RawData_Master Race Condition 발생
+      - "07_AUTOMATION_자동화/youtube_exports/**"
   workflow_dispatch:
     inputs:
       trigger_source:
@@ -17,6 +20,12 @@ on:
 env:
   PYTHON_VERSION: "3.11"
   TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || 'cron' }}
+
+# reach-data-sync.yml과 동일 그룹 공유 → _RawData_Master 동시 write 차단
+# cancel-in-progress: false — reach가 실행 중이면 대기 (취소 아님)
+concurrency:
+  group: youtube-data-pipeline
+  cancel-in-progress: false
 
 permissions:
   contents: read
