@@ -17,6 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CSV_PATH="$SCRIPT_DIR/../youtube_exports/studio_reach_report.csv"
 CSV_REL="07_AUTOMATION_자동화/youtube_exports/studio_reach_report.csv"
+TIMESTAMP_FILE="$SCRIPT_DIR/../youtube_exports/last_csv_download.txt"
+TIMESTAMP_REL="07_AUTOMATION_자동화/youtube_exports/last_csv_download.txt"
 LOG_FILE="/tmp/soundstorm_sync.log"
 RUN_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 CDP_PROFILE="$HOME/.soundstorm_chrome_cdp"
@@ -89,27 +91,45 @@ echo "" | tee -a "$LOG_FILE"
 echo "[0/3] CDP Chrome 시작 중..." | tee -a "$LOG_FILE"
 _start_cdp_chrome || on_error "Chrome 실행"
 
-# ── 1. CSV 다운로드 ───────────────────────────────────────────────────────────
+# ── 1. CSV 다운로드 (재시도 3회) ─────────────────────────────────────────────
 echo "" | tee -a "$LOG_FILE"
 echo "[1/3] CSV 다운로드 중..." | tee -a "$LOG_FILE"
-python3 "$SCRIPT_DIR/download_studio_csv.py" 2>&1 | tee -a "$LOG_FILE" || on_error "CSV 다운로드"
 
-if [ ! -f "$CSV_PATH" ]; then
-  on_error "CSV 파일 없음"
+CSV_SUCCESS=false
+for attempt in 1 2 3; do
+  echo "  ▶ 시도 $attempt / 3" | tee -a "$LOG_FILE"
+  if python3 "$SCRIPT_DIR/download_studio_csv.py" 2>&1 | tee -a "$LOG_FILE"; then
+    CSV_SUCCESS=true
+    break
+  fi
+  if [ $attempt -lt 3 ]; then
+    echo "  ⚠️ 실패 — 10초 후 재시도..." | tee -a "$LOG_FILE"
+    sleep 10
+  fi
+done
+
+if [ "$CSV_SUCCESS" != "true" ] || [ ! -f "$CSV_PATH" ]; then
+  on_error "CSV 다운로드 (3회 모두 실패)"
 fi
 echo "  ✅ CSV 저장 완료: $CSV_PATH" | tee -a "$LOG_FILE"
+
+# ── 1-B. 다운로드 성공 타임스탬프 기록 ────────────────────────────────────────
+# GitHub Actions에서 로컬 다운로드 신선도를 감지할 수 있도록 timestamp 파일 push
+date -u "+%Y-%m-%dT%H:%M:%SZ" > "$TIMESTAMP_FILE"
+echo "  📅 타임스탬프 기록: $(cat "$TIMESTAMP_FILE")" | tee -a "$LOG_FILE"
 
 # ── 2. git 커밋 ───────────────────────────────────────────────────────────────
 echo "" | tee -a "$LOG_FILE"
 echo "[2/3] git 커밋 중..." | tee -a "$LOG_FILE"
 cd "$REPO_ROOT" || on_error "REPO_ROOT 이동"
 
-git add "$CSV_REL" 2>&1 | tee -a "$LOG_FILE" || on_error "git add"
+git add "$CSV_REL" "$TIMESTAMP_REL" 2>&1 | tee -a "$LOG_FILE" || on_error "git add"
 
+TODAY=$(date +"%Y-%m-%d")
 if git diff --cached --quiet; then
-  echo "  ℹ️  CSV 변경 없음 — 커밋 스킵" | tee -a "$LOG_FILE"
+  echo "  ℹ️  CSV 변경 없음 — 빈 커밋으로 Actions 트리거 유지" | tee -a "$LOG_FILE"
+  git commit --allow-empty -m "chore: daily Actions keepalive ($TODAY)" 2>&1 | tee -a "$LOG_FILE" || on_error "git commit"
 else
-  TODAY=$(date +"%Y-%m-%d")
   git commit -m "data: update studio reach CSV ($TODAY)" 2>&1 | tee -a "$LOG_FILE" || on_error "git commit"
   echo "  ✅ 커밋 완료" | tee -a "$LOG_FILE"
 fi

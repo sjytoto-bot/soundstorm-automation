@@ -1,12 +1,23 @@
 name: Reach Data Sync (Studio CSV)
 
-# 로컬 Mac에서 CSV를 다운로드하고 커밋하면 이 워크플로우가 실행된다.
-# CSV 다운로드는 로컬에서만 수행 (CDP 방식, 로그인된 Chrome 필요).
+# CSV 다운로드는 로컬 Mac에서만 수행 (CDP Chrome 필요).
+# 이 워크플로우는 아래 3가지 경우에 실행된다:
+#   1) 로컬에서 CSV 다운로드 후 push
+#   2) GitHub Actions cron (일 2회) — 최신 CSV 재처리 보장
+#   3) 수동 workflow_dispatch
 on:
   push:
     paths:
       - "07_AUTOMATION_자동화/youtube_exports/studio_reach_report.csv"
-  workflow_dispatch:  # 수동 실행 버튼
+  schedule:
+    - cron: "0 1 * * *"    # 10:00 KST — 로컬 다운로드 직후 재처리
+    - cron: "0 13 * * *"   # 22:00 KST — 야간 재처리 (API 실패 복구)
+  workflow_dispatch:
+
+# 중복 실행 방지 — 이전 실행 중이면 취소 후 신규 실행
+concurrency:
+  group: reach-data-sync
+  cancel-in-progress: true
 
 env:
   PYTHON_VERSION: "3.11"
