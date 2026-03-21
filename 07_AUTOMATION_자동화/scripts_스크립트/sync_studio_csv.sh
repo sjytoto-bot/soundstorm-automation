@@ -33,6 +33,18 @@ for arg in "$@"; do
   esac
 done
 
+# ── 중복 실행 방지 락 ─────────────────────────────────────────────────────────
+LOCK_FILE="/tmp/soundstorm_sync.lock"
+if [ -f "$LOCK_FILE" ]; then
+  LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+  if kill -0 "$LOCK_PID" 2>/dev/null; then
+    echo "[$RUN_AT] 이미 실행 중 (PID: $LOCK_PID) — 스킵" | tee -a "$LOG_FILE"
+    exit 0
+  fi
+fi
+echo $$ > "$LOCK_FILE"
+trap "rm -f '$LOCK_FILE'" EXIT
+
 # ── 실패 핸들러 ──────────────────────────────────────────────────────────────
 on_error() {
   local step="$1"
@@ -65,7 +77,6 @@ _start_cdp_chrome() {
     --user-data-dir="$CDP_PROFILE" \
     --no-first-run \
     --no-default-browser-check \
-    --disable-background-mode \
     > /tmp/soundstorm_chrome.log 2>&1 &
   CDP_CHROME_PID=$!
 
@@ -121,17 +132,19 @@ echo "[1/3] CSV 다운로드 중..." | tee -a "$LOG_FILE"
 CSV_SUCCESS=false
 for attempt in 1 2 3; do
   echo "  ▶ 시도 $attempt / 3" | tee -a "$LOG_FILE"
-  if python3 "$SCRIPT_DIR/download_studio_csv.py" 2>&1 | tee -a "$LOG_FILE"; then
+  python3 "$SCRIPT_DIR/download_studio_csv.py" 2>&1 | tee -a "$LOG_FILE"
+  PYTHON_EXIT="${PIPESTATUS[0]}"
+  if [ "$PYTHON_EXIT" -eq 0 ]; then
     CSV_SUCCESS=true
     break
   fi
   if [ $attempt -lt 3 ]; then
-    echo "  ⚠️ 실패 — 10초 후 재시도..." | tee -a "$LOG_FILE"
+    echo "  ⚠️ 실패 (exit=$PYTHON_EXIT) — 10초 후 재시도..." | tee -a "$LOG_FILE"
     sleep 10
   fi
 done
 
-if [ "$CSV_SUCCESS" != "true" ] || [ ! -f "$CSV_PATH" ]; then
+if [ "$CSV_SUCCESS" != "true" ] || [ ! -f "$CSV_PATH" ] || [ ! -s "$CSV_PATH" ]; then
   on_error "CSV 다운로드 (3회 모두 실패)"
 fi
 echo "  ✅ CSV 저장 완료: $CSV_PATH" | tee -a "$LOG_FILE"
@@ -162,8 +175,26 @@ echo "" | tee -a "$LOG_FILE"
 echo "[3/3] git push..." | tee -a "$LOG_FILE"
 git push 2>&1 | tee -a "$LOG_FILE" || on_error "git push"
 
-# ── CDP Chrome 종료 ───────────────────────────────────────────────────────────
+# ── post-sync A: 최근 영상 게시이후 통계 직접 갱신 (Chrome 종료 전 실행) ───────
+echo "" | tee -a "$LOG_FILE"
+echo "[post-sync A] 최근 영상 '게시 이후' 통계 직접 갱신..." | tee -a "$LOG_FILE"
+python3 "$SCRIPT_DIR/download_recent_video_studio.py" 2>&1 | tee -a "$LOG_FILE"
+RECENT_EXIT="${PIPESTATUS[0]}"
+if [ "$RECENT_EXIT" -eq 0 ]; then
+  echo "  ✅ 최근 영상 통계 갱신 완료" | tee -a "$LOG_FILE"
+else
+  echo "  ⚠️  최근 영상 통계 갱신 실패 (exit=$RECENT_EXIT) — 비치명적, 계속 진행" | tee -a "$LOG_FILE"
+fi
+
+# ── CDP Chrome 종료 (이후 스텝은 Chrome 불필요) ────────────────────────────────
 _stop_cdp_chrome
+
+# ── post-sync B: Active Upload Monitor 즉시 갱신 ─────────────────────────────
+echo "" | tee -a "$LOG_FILE"
+echo "[post-sync B] Active Upload Monitor 갱신 중..." | tee -a "$LOG_FILE"
+python3 "$SCRIPT_DIR/generate_active_uploads.py" >> /tmp/soundstorm_active.log 2>&1 \
+  && echo "  ✅ active_uploads.json 갱신 완료" | tee -a "$LOG_FILE" \
+  || echo "  ⚠️  active_uploads 갱신 실패 (비치명적)" | tee -a "$LOG_FILE"
 
 REPO_URL="https://github.com/$(git remote get-url origin | sed 's/.*github.com[:/]//' | sed 's/\.git$//')"
 echo "" | tee -a "$LOG_FILE"
