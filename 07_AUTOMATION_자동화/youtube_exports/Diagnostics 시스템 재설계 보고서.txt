@@ -1,0 +1,273 @@
+ SOUNDSTORM Diagnostics 시스템 재설계 보고서                                            
+                                                                                         
+  ---                                                                                    
+  1. 지금 시스템의 진짜 문제                                                             
+                                                                                         
+  데이터로 증명하는 공백                                                                 
+                                                                                         
+  현재 Video_Diagnostics 시트가 가진 데이터:                                             
+                                                                                       
+  video_id | title | ctr | impressions | views | diagnosis | confidence | recommendation 
+                                                                                         
+  있는 것: CTR, 현재 노출수, 조회수                                                      
+  없는 것: 지난 주 노출수, 노출 변화율, 평균 시청 시간                                   
+                                                                                         
+  이게 왜 치명적인가:                                                                    
+                                                                                         
+  흑검 영상:  impressions = 6,715   CTR = 3.25%                                          
+                      ↑                                                                  
+            이게 "많이 줄었다"인지 "원래 이 정도"인지 알 수 없음                         
+            비교할 이전 값이 없기 때문                                                   
+                                                                                         
+  지금 시스템은 스냅샷 하나만 보고 있습니다. 필름이 아니라 사진 한 장.                   
+                                                                                         
+  ---                                                                                    
+  2. 왜 "CTR 중심 사고"가 망하는가                                                     
+                                         
+  실제 SOUNDSTORM 채널 데이터로 보면:
+                                                                                         
+  2월 18일: 만검돌격 531 조회 (비타겟 트래픽 유입)
+  2월 20일: 만검돌격 22 조회로 급락                                                      
+  2월 20일 이후: 채널 전체 노출 감소 시작                                                
+                                                                                         
+  이때 CTR 중심 시스템이 하는 일:                                                        
+                                                                                         
+  CTR 낮음 → 썸네일 교체 권장                                                          
+           → 썸네일 바꿈                                                                 
+           → 조회수 그대로                                                               
+           → 이유 모름                                                                   
+           → 또 썸네일 바꿈                                                              
+           → 반복                                                                      
+                                                                                         
+  실제 원인은 알고리즘이 채널 신뢰도를 낮춰서 노출 자체를 줄인 것인데, 시스템은 CTR      
+  증상만 보고 있었던 겁니다. 의사가 열이 난다고 해열제만 처방하는데, 진짜 원인은 폐렴인
+  상황.                                                                                  
+                                                                                       
+  ---                                    
+  3. 문제는 하나가 아니다 — 3가지 분류
+                                                                                         
+  유튜브 조회수 공식:
+                                                                                         
+  조회수 = 노출수 × CTR × (시청 유지가 다음 영상 추천 가능성 높임)                     
+                                                                                         
+  따라서 조회수가 낮은 원인은 반드시 셋 중 하나입니다:                                   
+                                                                                         
+  ┌─────────────────┬────────────────────────────────┬──────────────────────────┐        
+  │    문제 유형    │              정의              │       현재 시스템        │      
+  ├─────────────────┼────────────────────────────────┼──────────────────────────┤        
+  │ IMPRESSION_DROP │ 알고리즘이 내 영상을 덜 보여줌 │ ❌ 미감지                │      
+  ├─────────────────┼────────────────────────────────┼──────────────────────────┤
+  │ CTR_WEAK        │ 보여주는데 안 클릭             │ ✅ 감지 중               │        
+  ├─────────────────┼────────────────────────────────┼──────────────────────────┤        
+  │ RETENTION_WEAK  │ 클릭은 하는데 안 봄            │ ⚠️  분류만 있고 액션 없음 │        
+  └─────────────────┴────────────────────────────────┴──────────────────────────┘        
+                                                                                       
+  지금 시스템은 3가지 중 1가지만 보고 있습니다.                                          
+                                                                                       
+  ---                                                                                    
+  4. 새로운 설계: DiagnosticsPanel 중심 구조                                           
+                                            
+  4-1. 채널 상태 요약 (ChannelStatusSection) 변경
+                                                                                         
+  현재:
+  ┌─────────────────────────────────────────────┐                                        
+  │ 썸네일 개선 필요  9  │ 검색 노출 부족  3   │                                       
+  │ 초반 몰입도 문제  2  │ 알고리즘 확산   0   │                                         
+  └─────────────────────────────────────────────┘                                        
+                                                                                         
+  변경 후:                                                                               
+  ┌─────────────────────────────────────────────┐                                        
+  │ 채널 상태 요약                   ⚠ 17 이상  │                                      
+  ├─────────────────┬───────────────┬───────────┤
+  │ 🔴 노출 감소    │ 🔴 CTR 저하   │ 🟡 초반이탈 │                                      
+  │      5 →        │      9 →      │     3 →   │                                        
+  │ "알고리즘 문제" │ "썸네일 문제" │"콘텐츠 문제"│                                      
+  └─────────────────┴───────────────┴───────────┘                                        
+                                                                                         
+  각 카드가 다른 패널로 연결됩니다.                                                      
+                                                                                         
+  ---                                                                                  
+  4-2. YouTube 탭 구조 변경                                                              
+                                                                                         
+  현재:                                  
+  YouTube 탭                                                                             
+    └─ CTRAlertPanel (CTR 낮은 영상 목록)                                              
+         └─ ThumbnailWorkflowPanel (썸네일 교체)                                         
+                                                                                         
+  변경 후:                                                                               
+  YouTube 탭                                                                             
+    └─ DiagnosticsPanel (문제 분류 허브)                                                 
+         ├─ ImpressionDropPanel    ← 노출 감소 영상                                    
+         │    액션: 외부 트래픽 확인, 업로드 간격 분석                                   
+         │                                                                               
+         ├─ CTRAlertPanel          ← CTR 낮은 영상 (Step 1 완료)                         
+         │    액션: 썸네일 교체 (ThumbnailWorkflow 인라인)                               
+         │                                                                               
+         └─ RetentionDropPanel     ← 이탈률 높은 영상                                    
+              액션: 콘텐츠 분석, 첫 15초 개선 가이드                                     
+                                                                                         
+  ---                                                                                    
+  4-3. 클릭 흐름 (변경 후)               
+                                                                                         
+  [채널 상태 요약] 에서...                                                             
+                                                                                         
+  노출 감소 5 → 클릭 → YouTube 탭 → ImpressionDropPanel 포커스                           
+  CTR 저하 9  → 클릭 → YouTube 탭 → CTRAlertPanel 포커스                                 
+  초반 이탈 3 → 클릭 → YouTube 탭 → RetentionDropPanel 포커스                            
+                                                                                         
+  같은 드릴다운 구조, 단 목적지가 다릅니다.                                              
+                                                                                         
+  ---                                                                                    
+  5. 데이터 파이프라인 변경 사항                                                       
+                                                                                         
+  이게 핵심입니다. UI를 바꾸려면 데이터부터 고쳐야 합니다.
+                                                                                         
+  5-1. Video_Diagnostics 시트 컬럼 추가                                                  
+                                                                                         
+  현재 스키마:                                                                           
+  video_id | title | ctr | impressions | views | diagnosis | confidence | recommendation
+                                         
+  필요한 추가 컬럼:                                                                      
+  impressions_prev   # 이전 기간 노출수 (비교용)
+  impressions_change # 변화율 (%)  impressions_prev 대비                                 
+  avg_view_duration  # 평균 시청 시간 (초)                                               
+  avg_duration_prev  # 이전 기간 평균 시청 시간                                          
+  problem_type       # "IMPRESSION" | "CTR" | "RETENTION" | "NORMAL"                     
+                                                                                         
+  5-2. 진단 로직 변경 (api_data_shuttler.py 또는 studio_csv_ingestor.py)                 
+                                                                                         
+  현재 진단 로직 (추정):                                                                 
+  if ctr < 0.04:                                                                         
+      diagnosis = "THUMBNAIL_WEAK"                                                       
+                                                                                         
+  새 진단 로직:                          
+  def classify_problem(video):                                                           
+      impressions_drop = (video['impressions'] - video['impressions_prev']) /          
+  video['impressions_prev']                                                              
+                                                                                         
+      # 우선순위: 노출 감소 > CTR 저하 > 시청 이탈                                       
+      if impressions_drop < -0.20:           # 노출이 20% 이상 감소                      
+          problem_type = "IMPRESSION"                                                  
+          diagnosis = "ALGORITHM_DISTRIBUTION_LOW"                                       
+                                                                                       
+      elif video['ctr'] < 0.04:             # CTR 4% 미만                                
+          problem_type = "CTR"                                                           
+          diagnosis = "THUMBNAIL_WEAK"   
+                                                                                         
+      elif video['avg_view_duration'] < (video['channel_avg_duration'] * 0.6):         
+          problem_type = "RETENTION"         # 채널 평균의 60% 미만                      
+          diagnosis = "CONTENT_RETENTION_WEAK"                     
+                                                                                         
+      else:                                                                            
+          problem_type = "NORMAL"                                                        
+          diagnosis = "NORMAL"                                                         
+                                         
+      return problem_type, diagnosis                                                     
+                                                                                         
+  핵심 변화: CTR이 낮아도 노출이 더 먼저 떨어지고 있다면 IMPRESSION 문제로 분류. 썸네일  
+  교체보다 외부 트래픽 점검이 우선입니다.                                                
+                                                                                       
+  5-3. 데이터 수집 추가                                                                  
+                                                                                       
+  api_data_shuttler.py에서 영상별 데이터를 수집할 때 기간 비교 데이터를 함께 가져와야    
+  합니다:                                                                              
+                                                                                         
+  # 현재: 최신 30일 데이터만 수집                                                      
+  # 추가: 이전 30일 데이터도 함께 수집 → impressions_prev, avg_duration_prev 계산        
+                                                                                         
+  ---                                                                                    
+  6. 프론트엔드 변경 사항                                                                
+                                                                                         
+  6-1. VideoDiagnosticAdapter 타입 확장  
+                                                                                         
+  // 현재                                                                              
+  interface VideoDiagnostic {                                                            
+    videoId, title, ctr, impressions, views, diagnosis, confidence, recommendation       
+  }                                      
+                                                                                         
+  // 추가                                                                              
+  interface VideoDiagnostic {            
+    // ... 기존 유지
+    impressionsPrev:   number;  // 이전 기간 노출                                        
+    impressionsChange: number;  // 변화율 (-0.35 = -35%)                                 
+    avgViewDuration:   number;  // 평균 시청 시간 (초)                                   
+    problemType:       "IMPRESSION" | "CTR" | "RETENTION" | "NORMAL";                    
+  }                                                                                    
+                                                                                         
+  6-2. DiagnosticsPanel 신규 컴포넌트                                                    
+                                         
+  src/components/youtube/DiagnosticsPanel.jsx    ← 신규 (허브 역할)                      
+  src/components/youtube/ImpressionDropPanel.jsx ← 신규                                  
+  src/components/youtube/CTRAlertPanel.jsx       ← 기존 유지 (Step 1 완료)               
+  src/components/youtube/RetentionDropPanel.jsx  ← 신규                                  
+                                                                                         
+  DiagnosticsPanel은 videoDiagnostics 배열을 받아서 problemType으로 분류 후 각 하위      
+  패널에 전달합니다.                                                                   
+                                                                                         
+  6-3. NavigationContext (이전 설계 유지)                                                
+                                         
+  채널 상태 요약 → YouTube 탭 드릴다운 연결은 이전 설계 그대로 사용. 단 anchor가 3개로   
+  늘어납니다:                                                                          
+                                                                                         
+  "ctr-alert"       → CTRAlertPanel                                                    
+  "impression-drop" → ImpressionDropPanel  ← 신규                                        
+  "retention-drop"  → RetentionDropPanel   ← 신규                                        
+                                                                                         
+  ---                                                                                    
+  7. ImpressionDropPanel 액션 설계                                                     
+                                         
+  노출 감소는 썸네일을 바꾼다고 해결되지 않습니다. 노출 문제의 액션은 다릅니다:
+                                                                                         
+  ImpressionDropPanel                                                                    
+    영상: 만검돌격  노출변화: -68%  (6,715 → 2,140)                                      
+    ─────────────────────────────────────────────                                        
+    가능한 원인:                                                                         
+      □ 외부 비타겟 트래픽 유입 후 알고리즘 신뢰도 하락  ← Redirect Tracker 연동         
+      □ 유사 영상 과다 업로드로 자기 잠식                                                
+      □ 업로드 간격 부족                                                                 
+                                                                                         
+    권장 액션:                                                                           
+      [Redirect Tracker 확인]  [업로드 간격 분석]  [Studio 확인]                       
+                                                                                         
+  ---
+  8. 전체 구현 순서 (수정된 로드맵)                                                      
+                                                                                         
+  ┌──────┬───────────────────────────────────────┬────────────────────────┬──────────┐
+  │ 단계 │                 작업                  │          위치          │ 우선순위 │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤   
+  │ A    │ impressions_prev / avg_view_duration  │ Python                 │ 🔴 먼저  │   
+  │      │ 데이터 수집 추가                      │ (api_data_shuttler)    │          │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤   
+  │ B    │ Video_Diagnostics에 problem_type 컬럼 │ Python (진단 로직)     │ 🔴 먼저  │
+  │      │  추가                                 │                        │          │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤ 
+  │ C    │ VideoDiagnosticsAdapter 타입 + 파싱   │ TypeScript             │ B 다음   │   
+  │      │ 확장                                  │                        │          │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤
+  │ D    │ DiagnosticsPanel +                    │ React                  │ C 다음   │   
+  │      │ ImpressionDropPanel 신규 구현         │                        │          │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤
+  │ E    │ NavigationContext + 채널 상태 요약    │ React                  │ D와 병행 │   
+  │      │ 클릭 연결                             │                        │          │   
+  ├──────┼───────────────────────────────────────┼────────────────────────┼──────────┤
+  │ F    │ RetentionDropPanel 구현               │ React                  │ 마지막   │   
+  └──────┴───────────────────────────────────────┴────────────────────────┴──────────┘   
+                                         
+  ---                                                                                    
+  9. 핵심 판단 정리                                                                    
+                                         
+  현재 구조가 틀린 이유:
+    CTR 낮음 → 썸네일 교체                                                               
+    = "증상" 치료                                                                        
+                                                                                         
+  올바른 구조:                                                                           
+    노출 감소 → 알고리즘 신뢰도 점검                                                   
+    CTR 낮음  → 썸네일 교체                                                              
+    유지 낮음 → 콘텐츠 첫 15초 점검
+    = "원인" 치료                                                                        
+                                                                                         
+  데이터 파이프라인(A, B)이 완성되기 전까지 UI를 아무리 바꿔도 같은 진단 결과만 나옵니다.
+   따라서 Python 백엔드 먼저, UI는 그 다음입니다.                                        
+                                                                                         
+  ---                                                                                  
+  A, B (Python 데이터 파이프라인 수정)부터 진행할까요?

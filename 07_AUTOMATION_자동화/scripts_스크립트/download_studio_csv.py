@@ -37,9 +37,9 @@ BASE_DIR     = Path(__file__).parent.parent
 EXPORTS_DIR  = BASE_DIR / 'youtube_exports'
 CSV_FILENAME = 'studio_reach_report.csv'
 CSV_PATH     = str(EXPORTS_DIR / CSV_FILENAME)
-
 CHANNEL_ID   = 'UCAvSo9RLq0rCy64IH2nm91w'
-CDP_URL      = 'http://localhost:9222'
+CDP_URL      = 'http://127.0.0.1:9222'
+DOWNLOADS_DIR = Path.home() / 'Downloads'
 
 EXPORT_SELECTORS = [
     '[aria-label*="내보내기"]',
@@ -47,6 +47,182 @@ EXPORT_SELECTORS = [
     'ytcp-icon-button[aria-label*="내보내기"]',
     'ytcp-icon-button[aria-label*="Export"]',
 ]
+
+
+def _dismiss_blocking_overlays(page) -> None:
+    """YouTube Studio overlay/backdrop 때문에 클릭이 막힐 때 정리."""
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(300)
+    except Exception:
+        pass
+
+    overlay_selectors = [
+        "tp-yt-iron-overlay-backdrop.opened",
+        "tp-yt-iron-overlay-backdrop",
+        "ytcp-popup-container tp-yt-paper-dialog",
+        "tp-yt-paper-dialog",
+    ]
+    for sel in overlay_selectors:
+        try:
+            locator = page.locator(sel)
+            count = locator.count()
+            if count > 0:
+                locator.last.click(position={"x": 5, "y": 5}, force=True, timeout=1000)
+                page.wait_for_timeout(300)
+        except Exception:
+            pass
+
+
+def _safe_click(locator, page, label: str) -> None:
+    """오버레이/애니메이션에 막히는 클릭을 재시도하며 처리."""
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            locator.scroll_into_view_if_needed(timeout=5000)
+        except Exception:
+            pass
+        try:
+            locator.click(timeout=5000)
+            return
+        except Exception as exc:
+            last_error = exc
+            print(f"  ⚠️ {label} 클릭 재시도 {attempt}/3: {exc}")
+            _dismiss_blocking_overlays(page)
+            try:
+                locator.click(timeout=5000, force=True)
+                return
+            except Exception as force_exc:
+                last_error = force_exc
+                try:
+                    locator.evaluate(
+                        """el => {
+                            el.scrollIntoView({ block: 'center', inline: 'center' });
+                            el.click();
+                        }"""
+                    )
+                    return
+                except Exception as eval_exc:
+                    last_error = eval_exc
+                page.wait_for_timeout(800)
+    raise RuntimeError(f"{label} 클릭 실패: {last_error}")
+
+
+def _dom_click_export(page) -> None:
+    result = page.evaluate(
+        """() => {
+            const backdrops = Array.from(document.querySelectorAll('tp-yt-iron-overlay-backdrop'));
+            backdrops.forEach(el => {
+                el.style.pointerEvents = 'none';
+                el.classList.remove('opened');
+            });
+            const btn = document.querySelector('#export-button,[aria-label*="내보내기"],[aria-label*="Export"]');
+            if (!btn) return false;
+            btn.scrollIntoView({ block: 'center', inline: 'center' });
+            btn.click();
+            return true;
+        }"""
+    )
+    if not result:
+        raise RuntimeError("Export DOM click 실패")
+
+
+def _dom_click_csv(page) -> bool:
+    return bool(
+        page.evaluate(
+            """() => {
+                const candidates = Array.from(document.querySelectorAll('tp-yt-paper-item, [role="menuitem"], ytcp-text-menu tp-yt-paper-item'));
+                const target = candidates.find(el => {
+                    const text = (el.innerText || el.textContent || '').trim();
+                    return text.includes('쉼표로 구분된 값') || text === 'CSV' || text.includes('.csv');
+                });
+                if (!target) return false;
+                target.scrollIntoView({ block: 'center', inline: 'center' });
+                target.click();
+                return true;
+            }"""
+        )
+    )
+
+
+def _wait_for_downloaded_file(suggested_filename: str, timeout_sec: int = 60) -> Path:
+    deadline = time.time() + timeout_sec
+    stem = Path(suggested_filename).stem
+    suffix = Path(suggested_filename).suffix
+    candidates = [suggested_filename, f"{stem}*{suffix}"]
+
+    while time.time() < deadline:
+        matches: list[Path] = []
+        for pattern in candidates:
+            matches.extend(DOWNLOADS_DIR.glob(pattern))
+            matches.extend(EXPORTS_DIR.glob(pattern))
+
+        ready = []
+        for path in matches:
+            if path.suffix == ".crdownload":
+                continue
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            if stat.st_size > 0:
+                ready.append((stat.st_mtime, path))
+
+        if ready:
+            ready.sort(reverse=True)
+            return ready[0][1]
+        time.sleep(1)
+
+    raise RuntimeError(f"다운로드 파일 대기 타임아웃: {suggested_filename}")
+
+
+def _wait_for_nonempty_path(path: Path, timeout_sec: int = 20) -> Path:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if path.exists():
+            try:
+                if path.stat().st_size > 0:
+                    return path
+            except FileNotFoundError:
+                pass
+        time.sleep(1)
+    raise RuntimeError(f"임시 다운로드 파일이 비어 있음: {path}")
+
+
+def _open_advanced_mode(page) -> bool:
+    try:
+        btn = page.locator("ytcp-button#secondary-action-button, ytcp-button").filter(has_text="고급 모드").first
+        if btn.is_visible(timeout=3000):
+            btn.click(timeout=5000, force=True)
+            page.wait_for_timeout(5000)
+            print("  고급 모드 진입 완료")
+            return True
+    except Exception as e:
+        print(f"  ⚠️ 고급 모드 진입 실패: {e}")
+    return False
+
+
+def _get_active_studio_page(context):
+    candidates = []
+    for page in context.pages:
+        try:
+            if page.is_closed():
+                continue
+            candidates.append(page)
+        except Exception:
+            continue
+
+    for page in reversed(candidates):
+        try:
+            if "studio.youtube.com" in page.url:
+                return page
+        except Exception:
+            continue
+
+    if candidates:
+        return candidates[-1]
+    return context.new_page()
+
 
 def _build_analytics_url(time_period: str) -> str:
     return (
@@ -101,13 +277,16 @@ def _select_all_time(page) -> bool:
             print("  ⚠️ 기간 버튼 텍스트 미탐지 — ytcp-date-range-button 시도")
             period_btn = page.locator("ytcp-date-range-button").first
 
-        period_btn.click()
+        _dismiss_blocking_overlays(page)
+        _safe_click(period_btn, page, "기간 버튼")
         print("  기간 드롭다운 열림")
 
-        # 드롭다운 메뉴에서 '전체' 항목 대기 (게시 이후 = channel-level all-time)
-        option = page.get_by_text("전체", exact=True).first
+        # 드롭다운 메뉴에서 보이는 '전체' 항목 선택 (숨겨진 탭 라벨과 구분)
+        option = page.locator('tp-yt-paper-item[test-id="lifetime"], tp-yt-paper-item[role="option"]').filter(
+            has_text="전체"
+        ).first
         option.wait_for(state="visible", timeout=10000)
-        option.click()
+        _safe_click(option, page, "전체 옵션")
         print("  전체(게시 이후) 선택 완료")
 
         # Export 버튼 다시 나타날 때까지 대기 (데이터 재로드 완료 기준)
@@ -122,15 +301,18 @@ def _select_all_time(page) -> bool:
 def _find_export_button(page):
     for sel in EXPORT_SELECTORS:
         try:
-            el = page.locator(sel).first
-            if el.is_visible(timeout=1000):
-                return el
+            locator = page.locator(sel)
+            count = locator.count()
+            for idx in range(count):
+                el = locator.nth(idx)
+                if el.is_visible(timeout=1000):
+                    return el
         except Exception:
             pass
     return None
 
 
-def _run_export(page, mode: str) -> str:
+def _run_export(context, page, mode: str) -> str:
     """
     1. 4_weeks 로드 → Export 버튼 대기 (데이터 로드 완료 기준)
     2. default: 기간 드롭다운 → '전체'(게시 이후) → Export 버튼 재대기
@@ -146,9 +328,10 @@ def _run_export(page, mode: str) -> str:
     if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
         print("❌ 로그인 필요 — Chrome에서 YouTube Studio에 로그인 후 재시도하세요.")
         page.screenshot(path=str(EXPORTS_DIR / 'debug_screenshot.png'))
-        sys.exit(1)
+        raise RuntimeError("로그인 필요")
 
     # 4_weeks 데이터 로드 완료 기준: Export 버튼 등장
+    _open_advanced_mode(page)
     ok = _wait_for_export_button(page, timeout_sec=60)
     print(f"  4_weeks 데이터 로드: {'✅' if ok else '⚠️ 타임아웃 (계속 진행)'}")
 
@@ -156,9 +339,15 @@ def _run_export(page, mode: str) -> str:
     if mode == 'default':
         print("STEP 2: 기간 드롭다운 → 전체(게시 이후) 선택...")
         _select_all_time(page)
+        try:
+            page.wait_for_timeout(8000)
+        except Exception:
+            page = _get_active_studio_page(context)
+            page.wait_for_timeout(3000)
     else:
         page.wait_for_timeout(3000)
 
+    page = _get_active_studio_page(context)
     print(f"  현재 URL: {page.url}")
 
     # STEP 3: Export 버튼 활성화 대기
@@ -173,47 +362,72 @@ def _run_export(page, mode: str) -> str:
         time.sleep(2)
 
     if not export_btn:
-        page.screenshot(path=str(EXPORTS_DIR / 'debug_export_btn.png'))
-        print("❌ Export 버튼 없음")
-        sys.exit(1)
+        print("  ⚠️ Export 버튼 직접 탐지는 실패했지만 DOM 클릭 폴백으로 진행")
 
-    # STEP 4: 다운로드 캡처 (expect_download — CDP 모드 안정 방식)
+    # STEP 4: 다운로드 캡처 (expect_download - 문서 기준 v5.1 안정 경로)
     print("STEP 4: 다운로드 시작...")
     new_zip = None
     try:
         with page.expect_download(timeout=60000) as dl_info:
-            # Export 버튼 클릭
-            export_btn.click()
-            page.wait_for_timeout(1500)
-
-            # CSV 메뉴 선택
-            csv_item = page.locator('tp-yt-paper-item[test-id="CSV"]').first
-            if csv_item.is_visible(timeout=5000):
-                csv_item.click()
+            try:
+                page.locator('#export-button').first.click(force=True, timeout=5000)
+                page.wait_for_timeout(1000)
+                page.locator('tp-yt-paper-item[test-id="CSV"]').first.click(force=True, timeout=5000)
                 print("  CSV 옵션 클릭")
-            else:
-                # 폴백: 텍스트로 찾기
-                for txt in ['쉼표로 구분된 값(.csv)', 'CSV']:
-                    try:
-                        page.get_by_text(txt, exact=False).first.click()
-                        print(f"  CSV 옵션 클릭 (텍스트: '{txt}')")
-                        break
-                    except Exception:
-                        pass
+            except Exception:
+                _dismiss_blocking_overlays(page)
+                if export_btn:
+                    _safe_click(export_btn, page, "Export 버튼")
+                else:
+                    _dom_click_export(page)
+                page.wait_for_timeout(1500)
 
-        # STEP 5: 다운로드 완료 — save_as로 EXPORTS_DIR에 저장
+                csv_item = page.locator('tp-yt-paper-item[test-id="CSV"]').first
+                if csv_item.is_visible(timeout=5000):
+                    _safe_click(csv_item, page, "CSV 옵션")
+                    print("  CSV 옵션 클릭")
+                else:
+                    if _dom_click_csv(page):
+                        print("  CSV 옵션 클릭 (DOM)")
+                    else:
+                        clicked = False
+                        for txt in ['쉼표로 구분된 값(.csv)', 'CSV']:
+                            try:
+                                item = page.get_by_text(txt, exact=False).first
+                                _safe_click(item, page, f"CSV 옵션 ({txt})")
+                                print(f"  CSV 옵션 클릭 (텍스트: '{txt}')")
+                                clicked = True
+                                break
+                            except Exception:
+                                pass
+                        if not clicked:
+                            raise RuntimeError("CSV 메뉴 항목을 찾지 못했습니다.")
+
         download = dl_info.value
-        dest = str(EXPORTS_DIR / os.path.basename(download.suggested_filename))
-        download.save_as(dest)
-        new_zip = dest
+        dest = EXPORTS_DIR / os.path.basename(download.suggested_filename)
+        if dest.exists():
+            dest.unlink()
+        try:
+            temp_path = _wait_for_nonempty_path(Path(download.path()), timeout_sec=20)
+            shutil.copy2(temp_path, dest)
+        except Exception as path_error:
+            print(f"  ⚠️ download.path 폴백 진입: {path_error}")
+        if not dest.exists() or dest.stat().st_size == 0:
+            try:
+                download.save_as(str(dest))
+            except Exception as save_error:
+                print(f"  ⚠️ save_as 폴백 진입: {save_error}")
+        if not dest.exists() or dest.stat().st_size == 0:
+            actual_path = _wait_for_downloaded_file(download.suggested_filename, timeout_sec=60)
+            shutil.copy2(actual_path, dest)
+        new_zip = str(dest)
+        print(f"  다운로드 저장: {os.path.basename(new_zip)}")
 
     except Exception as e:
-        print(f"❌ 다운로드 실패: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"다운로드 실패: {e}") from e
 
     if not new_zip or not os.path.exists(new_zip) or os.path.getsize(new_zip) == 0:
-        print("❌ 다운로드 실패 (파일 없음 또는 크기 0)")
-        sys.exit(1)
+        raise RuntimeError("다운로드 실패 (파일 없음 또는 크기 0)")
 
     print(f"  ✅ 다운로드 완료: {os.path.basename(new_zip)} ({os.path.getsize(new_zip)//1024} KB)")
     return new_zip
@@ -237,10 +451,10 @@ def main():
 
     os.makedirs(EXPORTS_DIR, exist_ok=True)
 
-    with sync_playwright() as p:
+    def _connect_browser(playwright):
         print(f"\nChrome CDP 연결 중 ({CDP_URL})...")
         try:
-            browser = p.chromium.connect_over_cdp(CDP_URL)
+            browser = playwright.chromium.connect_over_cdp(CDP_URL)
         except Exception as e:
             print(f"\n❌ CDP 연결 실패: {e}")
             print()
@@ -248,39 +462,38 @@ def main():
             print('      --remote-debugging-port=9222')
             print()
             print("이후 wldyd032 계정으로 YouTube Studio에 로그인하고 재시도하세요.")
-            sys.exit(1)
+            raise RuntimeError(f"CDP 연결 실패: {e}") from e
 
         print("  CDP 연결 성공")
         contexts = browser.contexts
         if not contexts:
-            print("❌ 열린 브라우저 컨텍스트 없음")
-            sys.exit(1)
+            raise RuntimeError("열린 브라우저 컨텍스트 없음")
+        return browser, contexts[0]
 
-        context = contexts[0]
-        page = context.new_page()
-        page.set_viewport_size({"width": 1280, "height": 900})
-
+    with sync_playwright() as p:
+        browser, context = _connect_browser(p)
         # retry 3회
         new_zip = None
         for attempt in range(1, 4):
             print(f"\n━━━ 시도 {attempt}/3 ━━━")
             try:
-                new_zip = _run_export(page, args.mode)
+                page = context.new_page()
+                page.set_viewport_size({"width": 1280, "height": 900})
+                new_zip = _run_export(context, page, args.mode)
+                page.close()
                 break
-            except SystemExit:
-                raise
             except Exception as e:
                 print(f"  ⚠️ 예외: {e}")
                 if attempt < 3:
-                    print("  페이지 재로드 후 재시도...")
-                    page.close()
-                    page = context.new_page()
-                    page.set_viewport_size({"width": 1280, "height": 900})
+                    print("  CDP 연결 재정비 후 재시도...")
+                    try:
+                        if 'page' in locals() and not page.is_closed():
+                            page.close()
+                    except Exception:
+                        pass
+                    browser, context = _connect_browser(p)
                 else:
-                    print("❌ 3회 모두 실패")
-                    sys.exit(1)
-
-        browser.close()
+                    raise RuntimeError(f"3회 모두 실패: {e}") from e
 
         # Downloads 폴더에 있으면 EXPORTS_DIR로 이동
         new_zip_dest = str(EXPORTS_DIR / os.path.basename(new_zip))
@@ -303,8 +516,7 @@ def main():
                 key=os.path.getsize, reverse=True
             )
             if not csvs:
-                print("❌ 추출된 CSV 없음")
-                sys.exit(1)
+                raise RuntimeError("추출된 CSV 없음")
             table_csv = csvs[0]
 
         shutil.copy(table_csv, csv_path)

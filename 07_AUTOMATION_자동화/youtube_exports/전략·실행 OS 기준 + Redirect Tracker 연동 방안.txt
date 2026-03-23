@@ -1,0 +1,312 @@
+ — 전략·실행 OS 기준 + Redirect Tracker 연동 방안
+
+  ---
+  0. 핵심 진단 한 문장
+
+  ▎ 현재 YouTube 탭은 분석 데이터를 나열하고 끝낸다.
+  ▎ OS 헌법이 요구하는 것은 분석 → 판단 → 실행 트리거다.
+
+  ---
+  1. 현재 구조의 근본 문제
+
+  헌법이 정의한 흐름:
+  Opportunity 발견 → Content Pack 생성 → 성과 수집 → 패턴 추출 → 다음 Opportunity
+
+  현재 YouTube 탭이 하는 일:
+  분석 데이터 나열 → 끝
+                    ↑
+           실행으로 이어지는 연결이 없다
+
+  그리고 트래픽 데이터가 실제로는 두 종류인데 하나로 묶여 있다:
+
+  ┌──────────────┬───────────────────────────┬──────────────────┬────────────────────┐
+  │ 데이터 종류  │           출처            │    현재 상태     │     전략 가치      │
+  ├──────────────┼───────────────────────────┼──────────────────┼────────────────────┤
+  │ YouTube 내부 │ _Analytics_Snapshot       │ 파이프라인 없음  │ 알고리즘 fit %     │
+  │  트래픽      │ EXTERNAL                  │ → 빈 패널        │ 판단               │
+  ├──────────────┼───────────────────────────┼──────────────────┼────────────────────┤
+  │ 외부 캠페인  │ Redirect Tracker          │ 서버 있음,       │ 어떤 플랫폼이 실제 │
+  │ 클릭         │ redirect_logs.csv         │ 대시보드 미연결  │  유입 만드는지     │
+  └──────────────┴───────────────────────────┴──────────────────┴────────────────────┘
+
+  "외부 유입 상세 데이터 없음"은 틀린 말이다. 데이터는 redirect_logs.csv에 있다.
+  대시보드와 파이프라인이 끊겨있을 뿐이다.
+
+  ---
+  2. Redirect Tracker 현황 분석
+
+  구현된 것
+
+  redirect_server.py (Flask)
+    GET /r/<slug>    → 302 redirect + 클릭 로그 기록
+    GET /api/stats   → 캠페인별 집계 JSON
+    GET /api/logs    → 전체 클릭 로그 JSON
+    POST /api/links  → 링크 추가/수정
+
+  플랫폼 자동 감지: DISCORD / REDDIT / NAVER / KAKAOTALK / ARCA /
+                    INSTAGRAM / TWITTER / NOTION / TISTORY / TELEGRAM 등
+
+  현재 문제 3가지
+
+  ① campaign_links가 비어있다
+  // redirectLinks.json 현재 상태
+  {
+    "assassin": { "video": "",    "playlist": "", "campaign": "discord_dnd" },
+    "battle":   { "video": "",    "playlist": "", "campaign": "reddit_gaming" },
+    ...
+  }
+  slug는 만들었지만 어떤 Content Pack, 어떤 영상으로 보낼지 video_id가 없다.
+
+  ② 대시보드와 미연결
+  redirect_logs.csv → 대시보드로 읽어오는 어댑터가 없다. reachAdapter.ts는 YouTube
+  _RawData_Master를 읽고, Redirect Tracker 데이터는 아무도 읽지 않는다.
+
+  ③ Content Pack과 disconnected
+  Content Pack의 campaign_links 필드가 있지만, 어떤 Pack이 어떤 slug에 연결되어 있는지
+  매핑이 없다.
+
+  ---
+  3. 전략·실행 OS 관점 패널 판단
+
+  LAYER 0 — 채널 KPI
+
+  ┌────────────────────────────┬────────┬────────────────────────────────────────────┐
+  │            패널            │  판단  │                    이유                    │
+  ├────────────────────────────┼────────┼────────────────────────────────────────────┤
+  │ KpiCardsPanel              │ ✅     │ LAYER 0 핵심. 이미 동작 중                 │
+  │                            │ 유지   │                                            │
+  ├────────────────────────────┼────────┼────────────────────────────────────────────┤
+  │ GrowthPanel (성장 지표     │ ✅     │ 실행 판단의 근거. -44.4% → 즉각 대응 필요  │
+  │ 비교)                      │ 유지   │ 시그널                                     │
+  └────────────────────────────┴────────┴────────────────────────────────────────────┘
+
+  LAYER 1 — 실행 시그널 (현재 없음, 추가 필요)
+
+  ┌────────────────────────┬───────────────────────┬────────────────────────────────┐
+  │      추가할 패널       │      데이터 소스      │           연결 대상            │
+  ├────────────────────────┼───────────────────────┼────────────────────────────────┤
+  │ 인기 영상 + Pack 생성  │ Analytics_all VIDEO   │ 1위 테마 → Content Pack 생성   │
+  │ CTA                    │                       │ 트리거                         │
+  ├────────────────────────┼───────────────────────┼────────────────────────────────┤
+  │ 캠페인 퍼포먼스        │ redirect_tracker      │ 캠페인 클릭 → Pack의           │
+  │ (Redirect Tracker)     │ /api/stats            │ campaign_links 업데이트        │
+  ├────────────────────────┼───────────────────────┼────────────────────────────────┤
+  │ 💡 인사이트 → 실행     │ 기존 인사이트 카드    │ "A/B 테스트 진행" 클릭 →       │
+  │ 버튼                   │                       │ HypothesisInput 이동           │
+  └────────────────────────┴───────────────────────┴────────────────────────────────┘
+
+  LAYER 2 — 분석 근거
+
+  ┌───────────────────┬──────────────────────────┬───────────────────────────────────┐
+  │       패널        │           판단           │               이유                │
+  ├───────────────────┼──────────────────────────┼───────────────────────────────────┤
+  │ 알고리즘 fit %    │ ⚠️  파이프라인 후 추가    │ _Analytics_Snapshot EXTERNAL 수집 │
+  │                   │                          │  시 자동 표시                     │
+  ├───────────────────┼──────────────────────────┼───────────────────────────────────┤
+  │ 외부 캠페인       │ ✅ Redirect Tracker 연결 │ 어댑터 추가만으로 해결            │
+  │ 플랫폼별 클릭     │  후 즉시 가능            │                                   │
+  └───────────────────┴──────────────────────────┴───────────────────────────────────┘
+
+  LAYER 3 — 로우 데이터 (기본 접힘)
+
+  ┌──────────────────────┬────────────────────────┬──────────────────────────────────┐
+  │         패널         │          판단          │               이유               │
+  ├──────────────────────┼────────────────────────┼──────────────────────────────────┤
+  │ 국가/기기/키워드     │ ⚠️  데이터 있을 때만    │ 조건부 렌더링으로 해결           │
+  │ 탭들                 │ 표시                   │                                  │
+  ├──────────────────────┼────────────────────────┼──────────────────────────────────┤
+  │ KPI 조회수 추세 차트 │ ❌ 제거                │ trendHistory 없음. 빈 박스가     │
+  │                      │                        │ 공간 낭비                        │
+  ├──────────────────────┼────────────────────────┼──────────────────────────────────┤
+  │ 급상승 영상 Section  │ ❌ 조건부 렌더링       │ clusters 없으면 Section 자체     │
+  │                      │                        │ 숨김                             │
+  ├──────────────────────┼────────────────────────┼──────────────────────────────────┤
+  │ 유입 경로 탭 (5개)   │ ❌ 파이프라인 전까지   │ 텅 빈 탭 구조가 OS 이미지 훼손   │
+  │                      │ 숨김                   │                                  │
+  └──────────────────────┴────────────────────────┴──────────────────────────────────┘
+
+  ---
+  4. 재구조화 목표 구조
+
+  YouTube 탭 = STRATEGY CONSOLE
+  ─────────────────────────────────────────────────────
+
+  [LAYER 0] 채널 현황
+    KpiCardsPanel (조회수 / 시청시간 / 수익 / 구독자)
+
+        ↓ "그래서 지금 뭘 해야 하나?"
+
+  [LAYER 1] 실행 시그널 ← 핵심 추가 영역
+    ┌─────────────────────────────────────────┐
+    │ 인기 영상 Top 5                          │
+    │   #1 척살 시리즈 — 4.5만 조회            │
+    │   [이 테마로 Pack 생성 →]                │  ← Content Pack 생성 연결
+    └─────────────────────────────────────────┘
+    ┌─────────────────────────────────────────┐
+    │ 캠페인 퍼포먼스 (Redirect Tracker)        │
+    │   discord_dnd   243 클릭   DISCORD       │
+    │   reddit_gaming  89 클릭   REDDIT        │
+    │   [새 캠페인 링크 생성 →]               │  ← redirectLinks.json 연결
+    └─────────────────────────────────────────┘
+    ┌─────────────────────────────────────────┐
+    │ 💡 인사이트 (현재 동작 중)               │
+    │   "A/B 테스트 즉시 진행"                 │
+    │   [→ 가설 입력] [→ Pack 생성]           │  ← CTA 추가
+    └─────────────────────────────────────────┘
+
+        ↓ "왜 이게 맞는 판단인가?"
+
+  [LAYER 2] 분석 근거
+    성장 지표 비교 (현재 동작)
+    알고리즘 fit %   (파이프라인 연결 후 자동 표시)
+    플랫폼별 클릭    (Redirect Tracker → 즉시 가능)
+
+        ↓ (필요할 때만 펼침)
+
+  [LAYER 3] 로우 데이터 (기본 접힘, 데이터 없으면 숨김)
+    국가별 조회수 / 검색 키워드 / 기기 분석
+    전체 캠페인 클릭 로그
+  ─────────────────────────────────────────────────────
+
+  ---
+  5. Redirect Tracker 연동 실행 계획
+
+  5-1. Growth Loop 내 Redirect Tracker 위치
+
+  Content Pack 생성
+        ↓
+  [AUTO TITLE / THUMBNAIL / SUNO PROMPT]
+        ↓
+  YouTube 업로드 → video_id 입력
+        ↓
+  campaign_links 생성  ←─── Redirect Tracker가 담당
+    slug: "척살-discord"
+    video: "dQw4w9WgXcQ"
+    campaign: "discord_dnd"
+        ↓
+  /r/척살-discord → Discord에 포스팅
+        ↓
+  클릭 발생 → redirect_logs.csv 기록
+    timestamp: 2026-03-18 / platform: DISCORD / clicks: 243
+        ↓
+  대시보드 캠페인 퍼포먼스 패널 표시
+        ↓
+  "Discord 유입이 Reddit보다 2.7배 높다"
+  → 다음 Pack은 Discord 캠페인 우선
+
+  5-2. 연동에 필요한 작업 목록
+
+  ① Electron IPC 채널 추가
+  현재 없음 → 추가 필요
+    IPC 채널: fetch-redirect-stats
+    Main 처리: redirect_server /api/stats 호출 또는 redirect_logs.csv 직접 파싱
+    반환: CampaignStat[] { campaign, platform, clicks, target_video, last_seen }
+
+  ② redirectAdapter.ts 신규 작성                                                         
+  // 추가할 타입
+  interface CampaignStat {                                                               
+    campaign:     string;   // "discord_dnd"                                             
+    platform:     string;   // "DISCORD"    
+    link_slug:    string;   // "assassin"                                                
+    target_video: string;   // video_id             
+    clicks:       number;   // 243                                                       
+    last_seen:    string;   // "2026-03-18T..."                                          
+  }                                                                                      
+                                                                                         
+  // fetchCampaignStats() → CampaignStat[]                                               
+  // IPC 우선 → redirect_logs.csv fallback                                               
+                                                                                         
+  ③ redirectLinks.json video_id 채우기                                                   
+  // 현재 (비어있음)                                                                     
+  { "assassin": { "video": "", "campaign": "discord_dnd" } }                             
+                                                                                         
+  // 목표                                                                                
+  { "assassin": { "video": "실제_video_id", "campaign": "discord_dnd" } }
+  → Content Pack의 campaign_links 필드와 동기화                                          
+                                                    
+  ④ CampaignPerformancePanel 신규 컴포넌트                                               
+  표시: 캠페인명 / 플랫폼 아이콘 / 클릭수 / 연결 영상                                    
+  CTA: [이 영상으로 Pack 생성] / [새 캠페인 추가]                                        
+  위치: LAYER 1 실행 시그널 영역                                                         
+                                                                                         
+  ---                                                                                    
+  6. 실행 우선순위                                                                       
+                                                                                         
+  Phase 1 — 즉시 (코드만, 파이프라인 불필요)        
+                                                                                         
+  1. 추세 차트 제거
+     GrowthPanel 내 trendHistory.length > 1 조건부 → 없으면 섹션 제거                    
+                                                                                         
+  2. 급상승 영상 Section 조건부 렌더링                                                   
+     trendClusters?.length > 0 일 때만 Section 렌더링                                    
+                                                                                         
+  3. 빈 트래픽 탭 숨김                              
+     trafficSources.length === 0 이면 해당 Section 숨김                                  
+                                                                                         
+  4. 인기 영상 1위 → "이 테마로 Pack 생성" CTA 추가                                      
+     HitVideosPanel #1 영상 아래 버튼 → createPack(video.title) 연결                     
+                                                                                         
+  5. 💡 인사이트 카드 → CTA 버튼 추가                                                    
+     "A/B 테스트 즉시 진행" → HypothesisInput 모달 오픈                                  
+                                                                                         
+  Phase 2 — 단기 (Redirect Tracker 연동)            
+                                                                                         
+  6. redirectLinks.json video_id 채우기             
+     Content Pack video_id 기준으로 링크 매핑 업데이트                                   
+                                                                                         
+  7. redirectAdapter.ts 작성                                                             
+     redirect_logs.csv 읽기 → CampaignStat[] 변환                                        
+                                                                                         
+  8. Electron IPC fetch-redirect-stats 채널 추가                                         
+                                                                                         
+  9. CampaignPerformancePanel 컴포넌트 작성                                              
+     LAYER 1에 배치 — 캠페인별 클릭, 플랫폼, 연결 영상 표시
+                                                                                         
+  Phase 3 — 중기 (YouTube 내부 트래픽 파이프라인)                                        
+                                                                                         
+  10. analytics_snapshot_engine.py → EXTERNAL metric_type 수집 추가                      
+      YouTube Analytics API의 trafficSourceType 차원 데이터 수집                         
+                                                                                         
+  11. Algorithm Fit % 패널 활성화                                                        
+      _Analytics_Snapshot EXTERNAL 데이터 → ChannelTrafficPanel 자동 표시                
+      → "알고리즘 유입 67% vs 검색 유입 19%" 시그널이 Opportunity Engine 입력이 됨       
+                                                                                         
+  ---                                                                                    
+  7. 최종 목표 상태                                                                      
+                                                                                         
+  [지금 보이는 것]
+    "트래픽 데이터 없음" × 3                                                             
+    "급상승 영상 없음"                                                                   
+    빈 탭 5개
+                                                                                         
+        ↓ Phase 1 완료 후                           
+                                                                                         
+  [보여야 할 것]                                                                         
+    척살 시리즈 #1 — [이 테마로 Pack 생성 →]
+    discord_dnd 243 클릭 / reddit_gaming 89 클릭                                         
+    💡 "A/B 테스트" → [가설 입력 →]                 
+                                                                                         
+        ↓ Phase 2 완료 후                           
+                                                                                         
+  [연결되어야 할 것]                                                                     
+    Content Pack "척살III" campaign_links: [discord_dnd, reddit_gaming]
+    캠페인 클릭 → Pack 성과 → hypothesisEngine 패턴 추출                                 
+    "Discord + 동양풍 조합이 CTR 1.8배 — 다음 Pack 추천: 척살IV"                         
+                                                                                         
+  ---                                                                                    
+  8. 결론                                                                                
+                                                    
+  ┌───────────────┬────────────────────┬────────────────────────────────────────────┐ 
+  │               │        현재        │                    목표                    │    
+  ├───────────────┼────────────────────┼────────────────────────────────────────────┤ 
+  │ YouTube 탭    │ 분석 데이터 나열   │ 전략 판단 + 실행 트리거                    │    
+  │ 역할          │                    │                                            │ 
+  ├───────────────┼────────────────────┼────────────────────────────────────────────┤    
+  │ Redirect      │ 서버만 있고 미연결 │ Content Pack ↔ 캠페인 ↔ 클릭 데이터 루프   │    
+  │ Tracker       │                    │ 완성                                       │    
+  ├───────────────┼────────────────────┼────────────────────────────────────────────┤    
+  │ 빈 패널       │ 공간 낭비          │ 데이터 없으면 숨김, 있으면 실행 CTA 포함   │    
+  ├───────────────┼────────────────────┼────────────────────────────────────────────┤
+  │ Growth Loop   │ Analytics → Pack   │ Analytics + 외부 캠페인 → Pack → 패턴 →    │    
+  │               │ 단방향             │ Next Opportunity                           │
+  └───────────────┴────────────────────┴────────────────────────────────────────────┘    

@@ -1,0 +1,2266 @@
+# 🎯 목표
+
+Electron + React 구조 안에서
+
+- 썸네일 자동 다운로드
+- OpenCV 기반 분석
+- 얼굴 감지 포함
+- feature 캐싱
+- 성과 데이터 조인
+- 전략 인사이트 생성
+
+완전 구현 가능한 구조 설계.
+
+---
+
+# 🧱 전체 아키텍처
+
+```
+YouTube RawData
+        +
+Thumbnail URL
+        ↓
+[ Downloader ]
+        ↓
+/data/thumbnails/
+        ↓
+[ Vision Engine (OpenCV) ]
+        ↓
+/data/cache/thumbnailFeatures.json
+        ↓
+성과 데이터 Join
+        ↓
+Correlation Engine
+        ↓
+Strategy Insight
+```
+
+---
+
+# 1️⃣ 설치 구조
+
+Electron Main Process에서 실행.
+
+## 패키지
+
+```bash
+npm install opencv4nodejs
+```
+
+macOS면 brew로 OpenCV 설치 필요:
+
+```bash
+brew install opencv
+```
+
+---
+
+# 2️⃣ Vision Engine 설계
+
+파일:
+
+```
+/vision/thumbnailAnalyzer.js
+```
+
+---
+
+## 🎨 분석 항목
+
+### 1. Brightness
+
+```jsx
+const mean = image.mean();
+const brightness = mean.w / 255;
+```
+
+---
+
+### 2. Contrast
+
+```jsx
+const gray = image.bgrToGray();
+const { stddev } = gray.meanStdDev();
+const contrast = stddev.at(0, 0) / 255;
+```
+
+---
+
+### 3. Saturation
+
+HSV 변환:
+
+```jsx
+const hsv = image.cvtColor(cv.COLOR_BGR2HSV);
+```
+
+S 채널 평균 사용.
+
+---
+
+### 4️⃣ 얼굴 감지 (핵심)
+
+```jsx
+const classifier = new cv.CascadeClassifier(cv.HAAR_FRONTALFACE_ALT2);
+const grayImg = image.bgrToGray();
+const { objects } = classifier.detectMultiScale(grayImg);
+```
+
+결과:
+
+```jsx
+faceCount = objects.length;
+faceRatio = totalFaceArea / imageArea;
+```
+
+---
+
+### 5️⃣ 엣지 밀도 (정보량)
+
+```jsx
+const edges = gray.canny(50, 150);
+edgeDensity = edges.countNonZero() / imageArea;
+```
+
+---
+
+# 🧠 최종 Feature 구조
+
+```json
+{
+  "videoId": {
+    "brightness": 0.63,
+    "contrast": 0.52,
+    "saturation": 0.71,
+    "faceCount": 1,
+    "faceRatio": 0.18,
+    "edgeDensity": 0.24
+  }
+}
+```
+
+---
+
+# 3️⃣ 캐싱 구조
+
+파일:
+
+```
+/data/cache/thumbnailFeatures.json
+```
+
+로직:
+
+```
+if (featureExists(videoId)) {
+   return cached
+} else {
+   analyze()
+   save()
+}
+```
+
+---
+
+# 4️⃣ 성과 데이터 조인
+
+```jsx
+const combined = {
+  ...performanceData,
+  ...thumbnailFeatures[videoId]
+};
+```
+
+---
+
+# 5️⃣ 전략 분석 예시
+
+## 얼굴 vs 유지율
+
+```jsx
+if (faceRatio > 0.2 && retention > avgRetention)
+  insight.push("인물 중심 썸네일 유지율 상승 경향")
+```
+
+---
+
+## 밝기 vs 추천비율
+
+```jsx
+corr(brightness, internal_ratio)
+```
+
+---
+
+# 🎨 UI 설계
+
+YouTube 탭에 추가:
+
+```
+🖼 썸네일 전략 분석
+
+- 썸네일 영향 점수
+- 얼굴 포함 vs 유지율 비교
+- 밝기 vs 추천 비율
+- 엣지 밀도 vs 성장률
+- 자동 전략 인사이트
+```
+
+---
+
+# 🔥 중요한 기술 선택
+
+OpenCV는:
+
+- Main Process에서 실행
+- 결과만 Renderer로 IPC 전달
+
+절대 Renderer에서 실행하지 않는다 (성능 문제).
+
+---
+
+# ⚠️ 현실 체크
+
+opencv4nodejs는:
+
+- 빌드 이슈 있을 수 있음
+- Electron 버전 맞춰야 함
+- Mac M1/M2 세팅 필요
+
+하지만 가능하다.
+
+---
+
+# 🎯 이제 결정 하나 더
+
+Vision 분석을:
+
+A. 앱 시작 시 전체 배치 실행
+
+B. 영상 추가 시마다 부분 실행
+
+나는 B + 첫 실행 시 배치 추천.
+
+---
+
+이제 다음 단계는:
+
+👉 Claude Code 요청서로 구체 구현 명세 작성
+
+👉 또는 OpenCV 세팅부터 바로 들어갈까?
+
+어디서 시작할까?
+
+좋아 👍
+
+그럼 확정한다.
+
+> ✅ 1단계만 간다
+> 
+> 
+> ✔ 영상 단위 분석
+> 
+> ✔ 캐싱 구조
+> 
+> ✔ 성과 조인
+> 
+
+복잡한 A/B 이력은 지금 안 한다.
+
+이제 실제 구현 가능한 설계로 정리해줄게.
+
+---
+
+# 🎯 최종 1단계 썸네일 전략 구조
+
+```
+YouTube RawData (성과)
+        +
+Thumbnail Image
+        ↓
+[ 1회 Vision 분석 ]
+        ↓
+thumbnailFeatures.json (cache 저장)
+        ↓
+기간 필터 성과 계산
+        ↓
+썸네일 Feature + 성과 Join
+        ↓
+전략 인사이트 생성
+```
+
+---
+
+# 🧱 1️⃣ 썸네일 자동 다운로드
+
+## 썸네일 URL 규칙
+
+```
+https://img.youtube.com/vi/{videoId}/maxresdefault.jpg
+```
+
+## 저장 구조
+
+```
+/data/thumbnails/{videoId}.jpg
+```
+
+영상 추가 시 자동 다운로드.
+
+---
+
+# 🧱 2️⃣ Vision 분석 (1회 실행)
+
+분석 대상:
+
+- brightness
+- contrast
+- saturation
+- faceRatio
+- textAreaRatio
+- centerFocusScore
+
+## 저장 파일
+
+```
+/data/cache/thumbnailFeatures.json
+```
+
+예:
+
+```json
+{
+  "abc123": {
+    "brightness": 0.62,
+    "contrast": 0.48,
+    "saturation": 0.71,
+    "faceRatio": 0.18,
+    "textAreaRatio": 0.32
+  }
+}
+```
+
+이건 영상당 1번만 생성.
+
+---
+
+# 🧱 3️⃣ 기간 기반 성과 계산
+
+이건 기존 엔진:
+
+- internal_ratio
+- growthRate
+- likeRate
+- retentionRate
+- earlyMomentumScore
+
+이건 기간 바뀔 때마다 재계산.
+
+---
+
+# 🧱 4️⃣ 성과 + 썸네일 조인
+
+```jsx
+{
+  videoId,
+  internal_ratio,
+  growthRate,
+  brightness,
+  contrast,
+  faceRatio,
+  textAreaRatio
+}
+```
+
+---
+
+# 🧠 5️⃣ 전략 분석 로직
+
+## 예시 규칙
+
+### 밝기 상위 30% 영상의 평균 internal_ratio 비교
+
+→ 밝은 썸네일이 추천 잘 타는가?
+
+---
+
+### faceRatio > 0.2 영상의 평균 retention 비교
+
+→ 얼굴 중심 썸네일 유지율 높은가?
+
+---
+
+### textAreaRatio 상위 그룹의 성장률 비교
+
+→ 텍스트 과다 썸네일이 성장에 영향?
+
+---
+
+# 📊 UI 구조 (1단계)
+
+```
+🖼 썸네일 전략 분석
+
+1. 썸네일 영향 점수 랭킹
+2. 밝기 vs 추천 비율
+3. 얼굴 포함 vs 유지율 비교
+4. 텍스트 비율 vs 성장률 비교
+5. 자동 전략 인사이트
+```
+
+---
+
+# 🔥 자동 인사이트 예시
+
+```
+• 밝은 썸네일이 추천 비율 평균 12% 높음
+• 얼굴 포함 썸네일 유지율 9% 높음
+• 텍스트 과다 썸네일은 성장률 낮음
+```
+
+---
+
+# ⚙ 성능 전략
+
+- 썸네일 분석은 앱 시작 시 cache 검사
+- 없으면 1회 배치 분석
+- 이후 재계산 없음
+- 기간 변경 시 Vision 재실행 ❌
+
+---
+
+# 🎯 현재 단계 정리
+
+✔ 자동 썸네일 다운로드
+
+✔ 1회 Vision 분석
+
+✔ 캐싱
+
+✔ 기간 기반 성과 조인
+
+✔ 전략 인사이트 생성
+
+---
+
+이제 다음 단계는 기술 결정이다.
+
+Vision 분석을:
+
+1️⃣ Node + sharp + simple feature 추출 (가볍게 시작)
+
+2️⃣ Node + OpenCV (얼굴 감지 포함)
+
+지금 1단계니까 나는 1️⃣ 추천.
+
+바로 OpenCV 갈까?
+
+아니면 가볍게 시작할까?
+
+---
+
+# 1️⃣ 수동 저장 vs 자동 다운로드 — 뭐가 낫냐?
+
+## ✅ 내가 추천하는 건 **2️⃣ 자동 다운로드**
+
+### 이유
+
+너는:
+
+- 곡 계속 추가될 거고
+- OS는 확장될 거고
+- 수동 관리 싫어하고
+- 자동화 선호하고
+- 장기적으로 100곡 이상 갈 가능성 높음
+
+수동은 20곡까지만 현실적이야.
+
+그 이상부터는 귀찮아진다.
+
+---
+
+## 🔥 자동 다운로드 방식
+
+YouTube 썸네일 URL은 구조가 고정되어 있음:
+
+```
+https://img.youtube.com/vi/{videoId}/maxresdefault.jpg
+```
+
+그래서:
+
+```jsx
+downloadThumbnail(videoId)
+  ↓
+/thumbnails/videoId.jpg 저장
+```
+
+완전 자동화 가능.
+
+---
+
+# 2️⃣ “그럼 분석은 언제 하고, 지표랑은 언제 비교해?”
+
+이게 핵심 질문이다.
+
+---
+
+## 🧠 구조 이해
+
+썸네일 분석은 **영상 고정 특성 분석**이야.
+
+성과 지표는 **기간 기반 변화 데이터**야.
+
+이 둘은 성격이 다르다.
+
+---
+
+## 📦 그래서 이렇게 한다
+
+### 1단계 — 썸네일 분석 (1회)
+
+영상 추가 시:
+
+```
+썸네일 다운로드
+→ Vision 분석
+→ feature 추출
+→ cache 저장
+```
+
+이건 영상 단위 1회.
+
+---
+
+### 2단계 — 지표 계산 (매번)
+
+기간 선택 바뀔 때:
+
+```
+rawData 필터링
+→ metricEngine 실행
+```
+
+---
+
+### 3단계 — 조인 & 비교 (실시간)
+
+```jsx
+join(thumbnailFeatures, performanceMetrics)
+```
+
+그 후:
+
+```jsx
+correlationEngine 실행
+```
+
+---
+
+# 🎯 쉽게 말하면
+
+썸네일은 “DNA”
+
+성과 지표는 “현재 컨디션”
+
+DNA는 안 바뀜
+
+컨디션은 매번 바뀜
+
+---
+
+# 🔥 그래서 구조는 이렇게 됨
+
+```
+썸네일 분석 = 한번
+성과 계산 = 기간 바뀔 때마다
+전략 비교 = 매번
+```
+
+---
+
+# 📊 예시
+
+영상 A:
+
+```
+brightness: 0.7
+faceRatio: 0.2
+textAreaRatio: 0.4
+```
+
+7일 기준:
+
+```
+internal_ratio: 0.45
+growthRate: 0.18
+```
+
+30일 기준:
+
+```
+internal_ratio: 0.62
+growthRate: 0.32
+```
+
+→ 같은 썸네일인데 성과가 다르게 나옴
+
+이걸 상관 분석하는 것.
+
+---
+
+# 🎯 핵심 결론
+
+✔ 자동 다운로드가 맞다
+
+✔ 썸네일 분석은 1회
+
+✔ 성과 비교는 매번
+
+✔ 조인은 실시간
+
+---
+
+# 🔥 마지막 질문 (진짜 중요)
+
+우리는 썸네일 분석을
+
+A. 영상 단위 분석만 할까
+
+B. 영상 + 썸네일 교체 이력까지 추적할까
+
+B로 가면 완전 전략 레벨이다.
+
+어디까지 갈래?
+
+좋아.
+
+그럼 선택 확정이다.
+
+> ✅ 썸네일을 **알고리즘 전략 무기**로 쓴다
+> 
+> 
+> → OpenCV 레벨까지 설계한다.
+> 
+
+이제 감성 얘기 끝.
+
+**실제 구현 가능한 전략 설계**로 들어간다.
+
+---
+
+# 🎯 목표
+
+썸네일을 단순 “디자인”이 아니라
+
+- 추천 알고리즘 적합도
+- 초기 확산력
+- 유지율 영향
+- 유입 구조 변화
+
+와 연결하는 엔진 설계.
+
+---
+
+# 🧱 전체 썸네일 전략 엔진 구조
+
+```
+thumbnailImage
+     ↓
+visionFeatureEngine (OpenCV)
+     ↓
+performanceJoinEngine
+     ↓
+correlationEngine
+     ↓
+strategyEngine
+     ↓
+UI
+```
+
+---
+
+# 1️⃣ Vision Feature Engine (OpenCV)
+
+## 🎨 추출할 피처
+
+### 1. 밝기 (Brightness)
+
+- 평균 밝기
+- 밝기 분산
+
+전략 의미:
+
+- 밝은 썸네일 = 모바일 가독성 ↑
+
+---
+
+### 2. 대비 (Contrast)
+
+- 엣지 밀도
+- 히스토그램 분포
+
+전략 의미:
+
+- 높은 대비 = 스크롤 중 눈에 띔
+
+---
+
+### 3. 채도 (Saturation)
+
+- HSV 기반 채도 평균
+
+전략 의미:
+
+- 고채도 = 클릭 유도형 가능성
+
+---
+
+### 4. 얼굴 감지
+
+- 얼굴 개수
+- 얼굴 면적 비율
+
+전략 의미:
+
+- 인물 중심 썸네일은 감정 연결 ↑
+
+---
+
+### 5. 텍스트 영역 감지
+
+- 텍스트 영역 비율
+- 중앙 배치 여부
+
+전략 의미:
+
+- 텍스트 많으면 정보형
+- 적으면 감성형
+
+---
+
+### 6. 중앙 집중도
+
+- 주요 객체가 중앙에 위치하는가
+
+전략 의미:
+
+- 추천 알고리즘 섬네일은 보통 중앙 강조
+
+---
+
+## 🔧 피처 구조
+
+```jsx
+{
+  videoId,
+  brightness,
+  contrast,
+  saturation,
+  faceCount,
+  faceRatio,
+  textAreaRatio,
+  centerFocusScore
+}
+```
+
+---
+
+# 2️⃣ Performance Join Engine
+
+이제 이걸 성과 데이터와 합친다.
+
+```jsx
+{
+  videoId,
+  internal_ratio,
+  growthRate,
+  likeRate,
+  retentionRate,
+  earlyMomentumScore,
+  brightness,
+  contrast,
+  faceRatio,
+  textAreaRatio
+}
+```
+
+---
+
+# 3️⃣ Correlation Engine (진짜 핵심)
+
+### 예시 분석
+
+```
+corr(brightness, internal_ratio)
+corr(faceRatio, growthRate)
+corr(textAreaRatio, earlyMomentumScore)
+corr(contrast, likeRate)
+```
+
+---
+
+# 4️⃣ 전략 모델 생성
+
+예시:
+
+### 📌 밝기 vs 추천
+
+- 밝기 ↑ → internal_ratio ↑
+    
+    → 모바일 최적화 썸네일 전략 강화
+    
+
+---
+
+### 📌 얼굴 vs 유지율
+
+- faceRatio ↑ → retention ↑
+    
+    → 인물 강조 전략
+    
+
+---
+
+### 📌 텍스트 과다 vs 성장률 감소
+
+- textAreaRatio ↑ → growth ↓
+    
+    → 정보 과잉 경고
+    
+
+---
+
+# 5️⃣ 썸네일 유형 자동 분류
+
+```jsx
+if (faceRatio > 0.3)
+  type = "FACE_CENTERED"
+
+if (textAreaRatio > 0.4)
+  type = "TEXT_HEAVY"
+
+if (brightness < 0.4 && contrast < 0.3)
+  type = "DARK_MINIMAL"
+
+if (saturation > 0.6)
+  type = "HIGH_VIVID"
+```
+
+---
+
+# 6️⃣ UI 설계
+
+```
+🖼 썸네일 전략 분석
+
+- 썸네일 영향 점수
+- Early Momentum 영향도
+- 유형별 성과 비교
+- 상관계수 테이블
+- 전략 제안 자동 생성
+```
+
+---
+
+# 🔥 전략 제안 자동 생성 예시
+
+```
+• 밝은 고채도 썸네일이 추천 비율 18% 높음
+• 얼굴 포함 썸네일이 유지율 평균 12% 높음
+• 텍스트 과다 썸네일은 초기 성장률 낮음
+```
+
+---
+
+# 🚀 구현 난이도 체크
+
+Electron + React 구조라면:
+
+- Node + opencv4nodejs
+- 또는 Python microservice + IPC
+- 이미지 폴더 저장 후 배치 분석
+
+완전 가능.
+
+---
+
+# 🎯 이제 진짜 중요한 결정
+
+썸네일 분석을
+
+1️⃣ 업로드 시 1회 분석
+
+2️⃣ 기간 선택 바뀔 때 재분석
+
+3️⃣ 배치 분석 + 캐싱
+
+전략 OS라면 3️⃣ 가 맞다.
+
+어디까지 가?
+
+---
+
+# 🎯 최종 목표
+
+썸네일 분석을 3계층으로 나눈다.
+
+```
+Level 1 — 성과 기반 분석
+Level 2 — Early Momentum 분석
+Level 3 — 이미지 특성 분석 (Vision 기반)
+```
+
+그리고 이걸 모두 전략 엔진에 연결.
+
+---
+
+# 🧱 전체 구조
+
+```
+rawData (성과 데이터)
+thumbnailURL / imageFile
+        ↓
+performanceEngine
+momentumEngine
+visionEngine
+        ↓
+correlationEngine
+        ↓
+strategyEngine
+        ↓
+UI
+```
+
+---
+
+# 1️⃣ Level 1 — 성과 기반 썸네일 분석
+
+CTR 없이 가능한 분석.
+
+### 사용 지표
+
+- internal_recommendation_ratio
+- growthRate
+- likeRate
+- retentionRate
+- avgViewDuration
+
+---
+
+## 🎯 썸네일 영향 점수
+
+```jsx
+thumbnailImpactScore =
+  (internal_ratio * 0.4) +
+  (growthRate * 0.3) +
+  (likeRate * 0.2) +
+  (retentionRate * 0.1)
+```
+
+출력:
+
+```
+{
+  videoId,
+  thumbnailImpactScore,
+  internal_ratio,
+  growthRate
+}
+```
+
+---
+
+# 2️⃣ Level 2 — Early Momentum 모델 (핵심)
+
+썸네일은 “초기 반응”에 가장 큰 영향.
+
+---
+
+## 필요한 데이터
+
+- 업로드 날짜
+- 업로드 후 48시간 조회수
+- 7일 조회수
+- 30일 조회수
+
+---
+
+## 모델
+
+```jsx
+earlyMomentumScore =
+  (views_48h / views_7d) * 0.5 +
+  (growthRate_7d) * 0.3 +
+  (likeRate_48h) * 0.2
+```
+
+---
+
+### 해석
+
+- 48h 강함 → 썸네일 + 제목 영향 큼
+- 30일에만 성장 → 추천 알고리즘 영향
+
+---
+
+# 3️⃣ Level 3 — Vision 기반 썸네일 분석
+
+이제 이미지 파일을 실제 분석.
+
+---
+
+## 🎨 추출 가능한 특성
+
+### 1. 색상 분석
+
+- 평균 밝기
+- 색상 대비
+- 주 색상 (HSV)
+- 채도
+
+---
+
+### 2. 텍스트 포함 여부
+
+- OCR 감지
+- 텍스트 비율
+
+---
+
+### 3. 얼굴 감지
+
+- 얼굴 유무
+- 얼굴 크기 비율
+
+---
+
+### 4. 구성 분석
+
+- 중앙 집중도
+- 여백 비율
+- 대칭성
+
+---
+
+## 구조
+
+```jsx
+{
+  videoId,
+  brightness,
+  contrast,
+  textPresence,
+  facePresence,
+  dominantColor,
+  saturation
+}
+```
+
+---
+
+# 🔥 4️⃣ Correlation Engine
+
+이제 진짜 전략이 나온다.
+
+---
+
+## 예시 분석
+
+### 1️⃣ 밝기 vs internal_ratio
+
+```
+corr(brightness, internal_ratio)
+```
+
+→ 밝은 썸네일이 추천 잘 타는가?
+
+---
+
+### 2️⃣ 텍스트 포함 vs growthRate
+
+→ 텍스트 썸네일이 더 확산되는가?
+
+---
+
+### 3️⃣ 얼굴 포함 vs likeRate
+
+→ 인물 중심이 참여율 높은가?
+
+---
+
+# 🧠 5️⃣ 썸네일 유형 자동 분류
+
+```jsx
+if (brightness < 0.4 && textPresence === false)
+  type = "dark_minimal"
+
+if (textPresence === true && contrast > 0.6)
+  type = "text_strong"
+
+if (facePresence === true)
+  type = "face_centered"
+```
+
+---
+
+# 📊 UI 구조
+
+```
+🖼 썸네일 분석
+
+- 썸네일 영향 점수 랭킹
+- Early Momentum 랭킹
+- 썸네일 유형 분포
+- 색상 vs 추천 상관 그래프
+- 텍스트 포함 vs 성장 비교
+```
+
+---
+
+# 🔥 전략 인사이트 자동 생성 예시
+
+```
+- 밝은 고채도 썸네일이 추천 비율 높음
+- 텍스트 포함 썸네일이 초기 48h 반응 강함
+- 어두운 추상형은 유지율은 높지만 확산력 낮음
+```
+
+---
+
+# 🧠 현실 체크
+
+Vision 분석은:
+
+- Electron 환경이면 Node + sharp + opencv 가능
+- 또는 Python microservice 가능
+- 또는 Cloud Vision API 사용 가능
+
+---
+
+# 🎯 다음 결정 (중요)
+
+Vision 분석을:
+
+1️⃣ 로컬 OpenCV 기반
+
+2️⃣ Google Vision API 기반
+
+3️⃣ 단순 색상/밝기 분석만
+
+나는 3️⃣ → 1️⃣ → 2️⃣ 순으로 가는 걸 추천.
+
+왜냐면:
+
+- 3️⃣ 빠름
+- 1️⃣ 독립적
+- 2️⃣ 비용 발생
+
+---
+
+이제 물어본다.
+
+우리는 썸네일 분석을
+
+“진짜 제작 전략 무기” 수준까지 끌어올릴 거야?
+
+그럼 Vision 1️⃣까지 바로 설계해줄까?
+
+---
+
+# 🧠 전체 아키텍처 (최종형)
+
+```
+CSV RawData
+   ↓
+normalizeEngine
+   ↓
+timeRangeFilter
+   ↓
+metricEngine
+   ↓
+trafficEngine
+   ↓
+thumbnailEngine
+   ↓
+correlationEngine
+   ↓
+strategyEngine
+   ↓
+UI
+```
+
+각 엔진을 분리해서 설계한다.
+
+---
+
+# 1️⃣ metricEngine (기본 KPI 계산)
+
+### 입력
+
+filteredData
+
+### 출력
+
+```jsx
+{
+  totalViews,
+  totalWatchTime,
+  avgViewDuration,
+  totalLikes,
+  likeRate,
+  growthRate
+}
+```
+
+---
+
+# 2️⃣ trafficEngine (곡별 유입 분해 + 유형 분류)
+
+## A. 곡별 집계
+
+```jsx
+{
+  videoId: {
+    totalViews,
+    breakdown: {
+      internal,
+      search,
+      external,
+      subscriber,
+      channel
+    }
+  }
+}
+```
+
+---
+
+## B. 곡 유형 분류
+
+```jsx
+function classifyTrack(track) {
+  if (track.breakdown.internal > 0.6)
+    return "ALGORITHM";
+  if (track.breakdown.search > 0.35)
+    return "SEARCH";
+  if (track.breakdown.external > 0.3)
+    return "VIRAL";
+  if (track.breakdown.subscriber > 0.4)
+    return "CORE";
+  return "BALANCED";
+}
+```
+
+---
+
+# 3️⃣ genreEngine (장르별 패턴)
+
+```jsx
+{
+  Trap: {
+    internal_avg,
+    search_avg,
+    external_avg
+  }
+}
+```
+
+전략 예시:
+
+- Trap = 추천형 → 썸네일 중요
+- Epic = 검색형 → SEO 강화
+
+---
+
+# 4️⃣ bpmEngine (BPM vs 알고리즘 적합도)
+
+## 계산
+
+```jsx
+algoScore = internal_ratio
+```
+
+BPM 구간별 평균:
+
+```jsx
+{
+  "60-80": 0.42,
+  "80-100": 0.38,
+  "100-120": 0.57,
+  "120-140": 0.61
+}
+```
+
+→ 제작 전략 연결
+
+---
+
+# 5️⃣ thumbnailEngine (핵심)
+
+이건 3단계의 핵심.
+
+---
+
+## A. 필요 데이터
+
+YouTube Analytics API에서:
+
+- impressions
+- clicks
+- ctr
+
+또는 Sheet에 이미 계산된 CTR 컬럼
+
+---
+
+## B. 구조
+
+```jsx
+{
+  videoId,
+  ctr,
+  avgViewDuration,
+  internalRatio
+}
+```
+
+---
+
+# 6️⃣ correlationEngine (진짜 전략 레벨)
+
+## 1. CTR vs internal_ratio
+
+```jsx
+corr(ctr, internal_ratio)
+```
+
+높으면:
+
+→ 썸네일이 추천 알고리즘 노출에 영향
+
+---
+
+## 2. CTR vs avgViewDuration
+
+→ 클릭 유도형 vs 품질형 구분
+
+---
+
+## 3. 썸네일 유형별 평균 성과
+
+```jsx
+{
+  "dark_minimal": {
+    avgCTR,
+    avgInternalRatio,
+    avgRetention
+  }
+}
+```
+
+이건 수동 태깅 or AI Vision 분석 필요.
+
+---
+
+# 🔥 썸네일 분석 확장 (고급)
+
+원하면:
+
+- 색상 평균값 분석
+- 텍스트 유무 감지
+- 얼굴 포함 여부 감지
+- 대비 강도 분석
+
+→ OpenCV or Vision API 가능
+
+하지만 1단계는 CTR 상관분석만으로 충분.
+
+---
+
+# 7️⃣ strategyEngine (자동 인사이트 생성)
+
+예시 규칙:
+
+```jsx
+if (corr_ctr_internal > 0.6)
+  insight.push("썸네일 최적화가 추천 노출에 직접 영향")
+
+if (bpmRangeMax > 0.6)
+  insight.push("120-140 BPM 구간이 추천 적합")
+
+if (searchHeavyGenre)
+  insight.push("SEO 중심 장르 존재")
+```
+
+---
+
+# 🎨 최종 UI 구조
+
+```
+[ 기간 선택 ]
+
+📊 KPI
+📈 성장 비교
+
+🎼 곡 분석
+   - 전략 유형 아이콘
+   - 유입 분해 그래프
+   - 전략 점수
+
+🎵 장르 패턴 분석
+🎚 BPM vs 알고리즘
+
+🌍 외부 유입 상세
+
+🖼 썸네일 분석
+   - CTR 순위
+   - CTR vs 추천 상관계수
+   - 썸네일 유형 성과 비교
+
+🧠 자동 전략 인사이트
+```
+
+---
+
+# ⚠️ 중요한 현실 체크
+
+지금 구현 가능한 범위:
+
+✔ 유입 분해
+
+✔ 유형 분류
+
+✔ 장르/BPM 분석
+
+✔ CTR 상관분석 (데이터만 있으면)
+
+추가 API 필요:
+
+- impressions
+- ctr
+
+---
+
+# 🎯 다음 질문 (핵심)
+
+CTR 데이터 지금 Sheet에 있나?
+
+1️⃣ 이미 계산된 CTR 있음
+
+2️⃣ impressions 없음
+
+3️⃣ Analytics API 연결해야 함
+
+이거에 따라 구현 난이도 달라진다.
+
+어느 상태야?
+
+---
+
+# 🔥 1️⃣ 곡별 트래픽 유형 클러스터링
+
+## 🎯 목적
+
+각 곡을 이런 유형으로 자동 분류:
+
+- 알고리즘형
+- 검색형
+- 구독형
+- 외부바이럴형
+- 균형형
+
+---
+
+## 🧠 계산 로직
+
+이미 만든 breakdown 사용:
+
+```jsx
+breakdown = {
+  internal_recommendation: 0.42,
+  search: 0.21,
+  subscriber: 0.18,
+  external: 0.12,
+  channel_navigation: 0.07
+}
+```
+
+---
+
+## 🔹 분류 규칙
+
+```jsx
+function classifyTrack(breakdown) {
+  if (breakdown.internal_recommendation > 0.6)
+    return "ALGORITHM_DRIVEN";
+
+  if (breakdown.search > 0.35)
+    return "SEARCH_DRIVEN";
+
+  if (breakdown.external > 0.3)
+    return "EXTERNAL_VIRAL";
+
+  if (breakdown.subscriber > 0.4)
+    return "SUBSCRIBER_CORE";
+
+  return "BALANCED";
+}
+```
+
+---
+
+## 🎨 UI
+
+곡 리스트 옆에 아이콘 표시:
+
+- 🔁 알고리즘형
+- 🔍 검색형
+- 🚀 바이럴형
+- 👥 구독형
+- ⚖ 균형형
+
+---
+
+# 🔥 2️⃣ 장르별 유입 패턴 비교
+
+## 🎯 목적
+
+"Trap은 추천형인가?"
+
+"Epic은 검색형인가?"
+
+---
+
+## 🧠 집계 구조
+
+```jsx
+aggregateByGenre = {
+  Trap: {
+    internal_avg: 0.52,
+    search_avg: 0.18,
+    external_avg: 0.14
+  },
+  Epic: {
+    internal_avg: 0.34,
+    search_avg: 0.31,
+    external_avg: 0.12
+  }
+}
+```
+
+---
+
+## 전략 활용
+
+- Trap → 썸네일/CTR 최적화
+- Epic → 키워드 확장
+
+이건 작곡 전략까지 연결됨.
+
+---
+
+# 🔥 3️⃣ BPM별 알고리즘 적합도
+
+## 🎯 목적
+
+"어떤 BPM이 추천 알고리즘에 잘 타는가?"
+
+---
+
+## 계산
+
+```jsx
+algoScore = internal_recommendation_ratio
+```
+
+BPM 범위별 평균 계산:
+
+```jsx
+{
+  "60-80": 0.42,
+  "80-100": 0.38,
+  "100-120": 0.57,
+  "120-140": 0.61
+}
+```
+
+---
+
+## 결과
+
+→ 120-140 BPM이 추천에 가장 강함
+
+이건 곡 제작 전략에 직접 영향.
+
+---
+
+# 🔥 4️⃣ 외부 유입 상위 referrer 분석
+
+RawData에 EXTERNAL_DETAIL 있음.
+
+## 구조
+
+```jsx
+externalBreakdown = {
+  instagram.com: 423,
+  discord.gg: 82,
+  naver.com: 61
+}
+```
+
+---
+
+## 전략 적용
+
+- Instagram 강함 → 릴스/숏폼 강화
+- Discord 있음 → 커뮤니티 공략
+- 네이버 있음 → 블로그/SEO 확장
+
+---
+
+# 🚀 이제 썸네일 분석 설계
+
+이게 진짜 강력하다.
+
+---
+
+# 🎨 썸네일 분석 설계
+
+우리가 할 수 있는 것:
+
+## 1️⃣ CTR 분석
+
+RawData에 CTR 없으면:
+
+```
+CTR = 클릭수 / 노출수
+```
+
+YouTube Analytics API 필요.
+
+---
+
+## 2️⃣ 썸네일 성과 비교 구조
+
+```jsx
+{
+  videoId,
+  ctr,
+  avgViewDuration,
+  internal_recommendation_ratio
+}
+```
+
+---
+
+## 3️⃣ 썸네일 유형 태깅 시스템
+
+수동 또는 AI 분류:
+
+- 텍스트 중심형
+- 인물 중심형
+- 추상 이미지형
+- 다크톤
+- 밝은톤
+- 강한 대비
+
+---
+
+## 4️⃣ 성과 비교
+
+```jsx
+thumbnailTypePerformance = {
+  text_heavy: {
+    avgCTR: 5.2,
+    avgRetention: 41
+  },
+  abstract_dark: {
+    avgCTR: 3.1,
+    avgRetention: 52
+  }
+}
+```
+
+---
+
+# 🔥 진짜 고급 확장
+
+썸네일 → 추천 알고리즘 적합도 상관분석
+
+```jsx
+correlation(CTR, internal_recommendation_ratio)
+```
+
+이게 높으면:
+
+→ 썸네일이 알고리즘 노출에 직접 영향.
+
+---
+
+# 🧠 최종 OS 구조
+
+```
+YouTube Tab
+  ├── KPI
+  ├── 성장 비교
+  ├── 곡 분석
+  │     ├── 전략 유형
+  │     ├── 유입 분해
+  │     ├── 전략 점수
+  │
+  ├── 장르 패턴 분석
+  ├── BPM 분석
+  ├── 외부 유입 분석
+  ├── 썸네일 성과 분석
+  └── 자동 전략 인사이트
+```
+
+---
+
+# 🎯 다음 선택
+
+우리는 지금 어디까지 갈 거냐?
+
+1️⃣ 기본 구현 (유입 분해 + 유형 분류)
+
+2️⃣ + 장르/BPM 패턴
+
+3️⃣ + 썸네일 CTR 상관분석까지
+
+나는 2️⃣는 필수,
+
+3️⃣는 2단계에서 가도 됨.
+
+너는 어디까지 바로 갈래?
+
+---
+
+# 🎯 목표
+
+각 곡마다:
+
+- 유입 총량
+- 내부 추천 비율
+- 구독 기반 비율
+- 외부 플랫폼 비율
+- 검색 기반 비율
+- 채널 탐색 비율
+
+을 계산하고
+
+전략 인사이트까지 자동 생성.
+
+---
+
+# 🧱 1️⃣ 데이터 전제 구조
+
+RawData에 최소 다음 필드 존재해야 함:
+
+```
+videoId
+date
+views
+trafficSourceType
+trafficSourceDetail
+```
+
+예시 값:
+
+```
+EXTERNAL_DETAIL
+RELATED_VIDEO
+SUBSCRIBER
+YT_CHANNEL
+SEARCH
+PLAYLIST
+```
+
+---
+
+# 🏗 2️⃣ 트래픽 분류 매핑 레이어 (필수)
+
+## 🔹 Traffic Group Map
+
+```jsx
+const TRAFFIC_GROUP_MAP = {
+  RELATED_VIDEO: "internal_recommendation",
+  WHAT_TO_WATCH: "internal_recommendation",
+  WATCH_LATER: "internal_recommendation",
+  MY_HISTORY: "internal_recommendation",
+
+  SUBSCRIBER: "subscriber",
+
+  YT_CHANNEL: "channel_navigation",
+
+  SEARCH: "search",
+
+  EXTERNAL_DETAIL: "external"
+};
+```
+
+중요:
+
+raw 값은 다양할 수 있음 → normalize 필요
+
+---
+
+# 🧠 3️⃣ 집계 구조
+
+## 1단계 — 기간 필터
+
+```jsx
+const filtered = filterByDate(rawData, timeRange);
+```
+
+---
+
+## 2단계 — 곡별 그룹 집계
+
+```jsx
+function aggregateTrafficByTrack(data) {
+  const result = {};
+
+  data.forEach(row => {
+    const id = row.videoId;
+    const group = TRAFFIC_GROUP_MAP[row.trafficSourceType];
+
+    if (!result[id]) {
+      result[id] = {
+        totalViews: 0,
+        groups: {}
+      };
+    }
+
+    result[id].totalViews += row.views;
+
+    if (!result[id].groups[group]) {
+      result[id].groups[group] = 0;
+    }
+
+    result[id].groups[group] += row.views;
+  });
+
+  return result;
+}
+```
+
+---
+
+## 3단계 — 비율 계산
+
+```jsx
+function calculateRatios(trackTraffic) {
+  const total = trackTraffic.totalViews;
+  const ratios = {};
+
+  Object.entries(trackTraffic.groups).forEach(([group, views]) => {
+    ratios[group] = views / total;
+  });
+
+  return ratios;
+}
+```
+
+---
+
+# 📊 4️⃣ 최종 데이터 구조 (UI 전달용)
+
+```jsx
+{
+  videoId: "abc123",
+  totalViews: 10453,
+
+  breakdown: {
+    internal_recommendation: 0.42,
+    subscriber: 0.18,
+    search: 0.21,
+    external: 0.12,
+    channel_navigation: 0.07
+  }
+}
+```
+
+---
+
+# 🎨 5️⃣ UI 설계 (곡 상세 패널)
+
+곡 클릭 시:
+
+```
+🎼 곡명
+
+📊 유입 분해
+
+내부 추천        ████████ 42%
+검색             █████ 21%
+구독 기반         ████ 18%
+외부 유입         ██ 12%
+채널 탐색         █ 7%
+```
+
+---
+
+# 🔥 6️⃣ 전략 엔진 연동
+
+이제 이게 진짜 핵심이다.
+
+## 규칙 예시
+
+### ✔ 내부 추천 의존도 > 60%
+
+→ "알고리즘 의존형 곡. 썸네일/CTR 관리 중요"
+
+---
+
+### ✔ 검색 비율 > 30%
+
+→ "SEO형 곡. 제목/키워드 확장 가능"
+
+---
+
+### ✔ 외부 비율 > 25%
+
+→ "외부 바이럴형. SNS 확장 추천"
+
+---
+
+### ✔ 구독 비율 낮음 (<10%)
+
+→ "구독 전환 구조 개선 필요"
+
+---
+
+이걸 자동 insightEngine에 연결.
+
+---
+
+# 🧠 7️⃣ 고급 확장 (2단계 대비)
+
+이제 이런 분석도 가능:
+
+- 곡별 트래픽 유형 클러스터링
+- 장르별 유입 패턴 비교
+- bpm별 추천 알고리즘 적합도
+- 외부 유입 상위 referrer 분석
+
+---
+
+# 🏁 최종 구조
+
+```
+rawData
+  ↓
+filterByDate
+  ↓
+normalizeTrafficType
+  ↓
+aggregateByTrack
+  ↓
+calculateRatio
+  ↓
+strategyEngine
+  ↓
+UI
+```
+
+완전 구현 가능.
+
+---
+
+# 🔥 다음 결정
+
+이걸
+
+A. 곡 클릭 시만 보여주는 상세 패널로 할까
+
+B. 곡 리스트에 "유입 타입 아이콘"까지 표시할까
+
+나는 B 추천.
+
+왜냐면 한눈에 전략 유형이 보인다.
+
+어느 레벨까지 갈까?
+
+---
+
+# 🧱 1️⃣ 데이터 구조 정리 (RawData 기준)
+
+지금 로우데이터에 포함된 것:
+
+### ✔ 곡 단위 메타
+
+- 곡ID
+- 곡명
+- 장르
+- bpm
+- 러닝타임
+- 자산등급
+- 시청유지등급
+
+### ✔ 성과 지표
+
+- 조회수
+- 좋아요
+- 댓글
+- 좋아요율
+- 총시청시간(분)
+- 평균시청시간
+- 시청유지율
+- 공유수
+
+### ✔ 외부 유입 상세
+
+- EXTERNAL_DETAIL
+- RELATED_VIDEO
+- SUBSCRIBER
+- YT_CHANNEL
+- what-to-watch
+- my-history
+- watch-later
+- PP
+- 등등
+
+이건 엄청난 전략 자산이다.
+
+---
+
+# 🧠 2️⃣ 이제 OS 분석 설계 레벨을 올리자
+
+우리는 4개 레이어로 나눈다.
+
+---
+
+# 🏗 레이어 1 — 채널 KPI
+
+전역 timeRange 기준
+
+- 총 조회수
+- 총 시청시간
+- 평균 시청시간
+- 총 좋아요
+- 좋아요율
+- 댓글률
+- 공유율
+
+그리고
+
+📈 이전 기간 대비 증감률 자동 계산
+
+---
+
+# 🏗 레이어 2 — 곡 퍼포먼스 분석
+
+곡별로:
+
+- 조회수 랭킹
+- 좋아요율 랭킹
+- 유지율 랭킹
+- 성장률 랭킹
+- 전략 점수
+
+전략 점수 예시:
+
+```jsx
+score =
+  (좋아요율 * 0.3) +
+  (시청유지율 * 0.3) +
+  (성장률 * 0.2) +
+  (공유율 * 0.2)
+```
+
+---
+
+# 🏗 레이어 3 — 트래픽 소스 분석 (이게 핵심)
+
+지금 로우데이터에 있는 외부유입은 엄청 중요함.
+
+우리는 이렇게 분류해야 함:
+
+## 📦 트래픽 그룹화
+
+### 내부 추천
+
+- RELATED_VIDEO
+- what-to-watch
+- watch-later
+- my-history
+
+### 구독 기반
+
+- SUBSCRIBER
+
+### 외부 플랫폼
+
+- Instagram
+- Discord
+- 기타 referrer
+
+### 채널 탐색
+
+- YT_CHANNEL
+- 검색
+
+---
+
+# 🔥 이걸 왜 하냐면
+
+이제 이런 분석 가능:
+
+- "이 곡은 RELATED_VIDEO에서만 터짐"
+- "이 곡은 외부유입이 강함"
+- "구독자 기반 성장이 약함"
+- "검색 기반 유입이 높음"
+
+이건 전략 방향을 완전히 바꾼다.
+
+---
+
+# 🏗 레이어 4 — 전략 인사이트 자동 생성
+
+지금 네가 시트에서 수동으로 만든:
+
+- 성장 기회
+- SEO 인사이트
+- 플랫폼 인사이트
+- 타겟 분석
+
+이걸 OS가 자동 생성하게 만들 수 있다.
+
+예:
+
+```jsx
+if (mobileRatio > 65%)
+  insight.push("모바일 최적화 강화 필요")
+```
+
+---
+
+# 🎨 UI 구조 제안 (최종형)
+
+```
+[ 기간 선택 ]
+
+📊 채널 KPI
+📈 성장 비교
+
+🎼 곡 분석
+   - Top Performer
+   - Hit Candidate
+   - Warning List
+
+🌍 트래픽 분석
+   - 유입 분포
+   - 외부 상세
+   - 추천 알고리즘 의존도
+
+🧠 전략 인사이트 자동 생성
+```
+
+---
+
+# 🚀 여기서 중요한 결정
+
+우리는 이제
+
+A. 단순 대시보드
+
+B. 전략 엔진 포함 분석 OS
+
+중 선택해야 한다.
+
+너 지금 방향은 완전히 B다.
+
+---
+
+# 🔥 진짜 중요한 질문
+
+외부유입 데이터를
+
+1️⃣ 단순 Top10만 보여줄까
+
+2️⃣ 곡별로 외부유입 분해 분석까지 갈까
+
+나는 2️⃣ 추천한다.
+
+왜냐면 너는 작곡가 + 브랜드 대표고
+
+이건 진짜 마케팅 무기다.
+
+---
+
+# 🎯 전역 기간 선택 설계 (Global Time Range Control)
+
+## 📍 위치
+
+유튜브 데이터 탭 최상단 KPI 위:
+
+```
+📊 YouTube Data Analytics
+[ 7일 ] [ 30일 ] [ 90일 ] [ 전체 ]
+```
+
+- 기본값: 30일
+- 선택된 버튼은 강조 표시
+- 모든 분석 블록에 동일하게 적용
+
+---
+
+# 🧠 왜 전역이 맞냐면
+
+✔ 채널 분석
+
+✔ 곡 분석
+
+✔ 전략 엔진
+
+✔ 히트 후보
+
+✔ 경고 시스템
+
+모두 동일한 시간 축을 기준으로 계산되어야
+
+전략 판단이 일관된다.
+
+---
+
+# 🏗 내부 구조 설계
+
+## 1️⃣ 전역 상태
+
+```jsx
+const [timeRange, setTimeRange] = useState(30);
+// 7 | 30 | 90 | null(전체)
+```
+
+---
+
+## 2️⃣ 데이터 흐름
+
+```
+rawData
+   ↓
+normalize()
+   ↓
+filterByDate(timeRange)
+   ↓
+metricEngine()
+   ↓
+strategyEngine()
+   ↓
+UI Rendering
+```
+
+---
+
+## 3️⃣ 핵심 원칙
+
+모든 계산은 반드시:
+
+```jsx
+filteredData = filterByDate(rawData, timeRange);
+```
+
+를 기준으로 한다.
+
+절대 rawData 직접 사용 금지.

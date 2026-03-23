@@ -118,6 +118,46 @@ def _purge_full_period(ws, columns, keep_days=90, threshold=3000):
     print(f"  🗑️  [FullPeriod Purge] {removed}행 삭제 | {len(kept)}행 보존 ({keep_days}일 이내)")
 
 
+def _replace_sheet_values_without_clear(ws, values, value_input_option='USER_ENTERED'):
+    """기존 값을 비우지 않고 시트 전체 값을 안전 교체한다.
+
+    순서:
+    1. 필요한 크기만큼 시트를 확장
+    2. 새 값을 A1부터 덮어씀
+    3. 이전 데이터보다 작아진 영역만 후처리로 비움
+
+    clear() 선행 호출을 피해서, 쓰기 중 예외가 나도 기존 데이터가 통째로
+    사라지지 않도록 보호한다.
+    """
+    if not values or not values[0]:
+        raise ValueError("values must contain at least one row and one column")
+
+    target_rows = len(values)
+    target_cols = max(len(row) for row in values)
+    current_rows = ws.row_count
+    current_cols = ws.col_count
+
+    if current_rows < target_rows or current_cols < target_cols:
+        ws.resize(rows=max(current_rows, target_rows), cols=max(current_cols, target_cols))
+
+    end_a1 = gspread.utils.rowcol_to_a1(target_rows, target_cols)
+    ws.update(f"A1:{end_a1}", values, value_input_option=value_input_option)
+
+    stale_ranges = []
+    if current_rows > target_rows:
+        stale_ranges.append(
+            f"A{target_rows + 1}:{gspread.utils.rowcol_to_a1(current_rows, max(current_cols, target_cols))}"
+        )
+    if current_cols > target_cols:
+        stale_ranges.append(
+            f"{gspread.utils.rowcol_to_a1(1, target_cols + 1)}:{gspread.utils.rowcol_to_a1(target_rows, current_cols)}"
+        )
+
+    if stale_ranges:
+        ws.batch_clear(stale_ranges)
+        print(f"  [SheetSafeWrite] 잔여 영역 정리: {', '.join(stale_ranges)}")
+
+
 def get_usdkrw_rate():
     """[v14.3] USD/KRW 환율 자동 조회 (Open API + 폴백)"""
     import ssl
@@ -1146,10 +1186,12 @@ def main():
         # 4) 실제 기록될 데이터프레임을 시트 헤더 순서와 정확하게 정렬
         df_master = df_master.reindex(columns=existing_headers).fillna("")
 
-        ws_master.clear()  # 전체 값 안전 초기화 후 정렬된 df 통째로 덮어쓰기
-
         print(f"[Master] 시트 Write 직전 데이터 행 수: {len(df_master)}행")
-        ws_master.update([df_master.columns.tolist()] + df_master.values.tolist())
+        _replace_sheet_values_without_clear(
+            ws_master,
+            [df_master.columns.tolist()] + df_master.values.tolist(),
+            value_input_option='USER_ENTERED'
+        )
         print(f"[Master] 업데이트 완료 (총 {len(df_master)}행)")
     
     # Update _RawData_FullPeriod (Append-Only 구조)

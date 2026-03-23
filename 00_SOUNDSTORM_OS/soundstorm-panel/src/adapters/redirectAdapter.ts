@@ -44,6 +44,24 @@ export interface CampaignStat {
   isNontargetRisk: boolean;
 }
 
+export interface ExternalDropStat {
+  slug: string;
+  campaign: string;
+  platform: string;
+  videoId: string;
+  prevClicks: number;
+  recentClicks: number;
+  dropRate: number;
+  status: "DEAD" | "DROPPING";
+}
+
+export interface ExternalDropSummary {
+  drops: ExternalDropStat[];
+  totalCampaigns: number;
+  healthyCampaigns: number;
+  windowDays: number;
+}
+
 // ─── redirectLinks.json 로드 ──────────────────────────────────────────────────
 
 /**
@@ -152,6 +170,105 @@ export function computeCampaignStats(
       } satisfies CampaignStat;
     })
     .sort((a, b) => b.clicks - a.clicks);
+}
+
+function getDayStart(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseLogDate(log: { timestamp?: string }): Date | null {
+  if (!log.timestamp) return null;
+  const d = new Date(log.timestamp);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function computeExternalDrop(
+  logs: { timestamp?: string; campaign: string; link_slug: string; platform: string; target_video?: string }[],
+  links: RedirectLinkMap,
+  windowDays = 7,
+): ExternalDropSummary {
+  if (!logs.length) {
+    return {
+      drops: [],
+      totalCampaigns: 0,
+      healthyCampaigns: 0,
+      windowDays,
+    };
+  }
+
+  const datedLogs = logs
+    .map(log => ({ ...log, parsedDate: parseLogDate(log) }))
+    .filter(log => log.parsedDate) as Array<typeof logs[number] & { parsedDate: Date }>;
+
+  if (!datedLogs.length) {
+    return {
+      drops: [],
+      totalCampaigns: 0,
+      healthyCampaigns: 0,
+      windowDays,
+    };
+  }
+
+  const latestDate = datedLogs.reduce((max, log) => (
+    log.parsedDate.getTime() > max.getTime() ? log.parsedDate : max
+  ), datedLogs[0].parsedDate);
+
+  const recentStart = getDayStart(new Date(latestDate.getTime() - (windowDays - 1) * 86400000));
+  const prevStart = getDayStart(new Date(recentStart.getTime() - windowDays * 86400000));
+
+  const campaignMap = new Map<string, {
+    slug: string;
+    campaign: string;
+    platform: string;
+    videoId: string;
+    prevClicks: number;
+    recentClicks: number;
+  }>();
+
+  for (const log of datedLogs) {
+    const slug = log.link_slug || log.campaign || "unknown";
+    if (!campaignMap.has(slug)) {
+      campaignMap.set(slug, {
+        slug,
+        campaign: log.campaign || slug,
+        platform: log.platform || "DIRECT",
+        videoId: links[slug]?.video || log.target_video || "",
+        prevClicks: 0,
+        recentClicks: 0,
+      });
+    }
+
+    const entry = campaignMap.get(slug)!;
+    if (log.parsedDate >= recentStart) {
+      entry.recentClicks += 1;
+    } else if (log.parsedDate >= prevStart) {
+      entry.prevClicks += 1;
+    }
+  }
+
+  const rows = Array.from(campaignMap.values());
+  const drops = rows
+    .filter(row => row.prevClicks >= 3 && row.recentClicks < row.prevClicks)
+    .map(row => {
+      const dropRate = row.prevClicks > 0 ? (row.prevClicks - row.recentClicks) / row.prevClicks : 0;
+      const status: "DEAD" | "DROPPING" = row.recentClicks === 0 || dropRate >= 0.85 ? "DEAD" : "DROPPING";
+      return {
+        ...row,
+        dropRate,
+        status,
+      } satisfies ExternalDropStat;
+    })
+    .filter(row => row.dropRate >= 0.5)
+    .sort((a, b) => b.dropRate - a.dropRate || b.prevClicks - a.prevClicks);
+
+  return {
+    drops,
+    totalCampaigns: rows.length,
+    healthyCampaigns: Math.max(0, rows.length - drops.length),
+    windowDays,
+  };
 }
 
 // ─── reachRows → DimensionRow 변환 ───────────────────────────────────────────

@@ -1,6 +1,6 @@
 # SOUNDSTORM Creator OS — 마스터 보고서
 
-**최종 수정: 2026-03-22 (CTR Race Condition 3-layer fix / download_studio_csv v5.1 게시이후 전환 / NextUploadCard 통합 / TodayBriefCard 단순화 / ChannelStatusPanel 드릴다운 / UpdateStatusBar 3-항목 재명명)**
+**최종 수정: 2026-03-23 (외부 유입 드릴다운 완료 / RightSidePanel 747줄 구조 분해 / ChannelHealth 엔진 분리 / Dashboard OS 알림 브릿지 연결 / build·test 재검증)**
 
 > **[문서 유지 규칙]**
 > 1. 동일 기능 설명은 1곳만 — 중복 발견 시 최신 버전 외 삭제
@@ -131,6 +131,8 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | STAGE 4 — Block System | blockRegistry + DashboardData/Actions 계약 + useDashboardBlocks + SaveStatusBadge | ✅ 완료 (2026-03-20) |
 | STAGE 4 — Execution Auto | ThemeIntelligenceEngine + UploadAssistant v2 + GrowthLoopMonitor | ✅ 완료 (2026-03-20) |
 | CTR CSV 파이프라인 | Studio CSV 수집 자동화 + _RawData_Master write-back + dirty flag diagnostics | ✅ 완료 (2026-03-21) |
+| 최근 영상 게시이후 자동갱신 | download_recent_video_studio.py — 2시간마다 최근 영상 impressions/CTR 직접 Sheets 반영 | ✅ 완료 (2026-03-22) |
+| Latest Video Watchdog | 최신 영상 1개 감시 → proposal 생성 → Discord 알림 → apply/rollback 실행 | ✅ 완료 (2026-03-23) |
 | GoldenHour Inline Badge | ActiveUploadMonitor 블록 통합 → RecentUploadsTable 인라인 배지 | ✅ 완료 (2026-03-21) |
 | NextUploadCard 통합 | 다음 업로드 예측 + 골든아워 → 단일 카드 (의사결정 로직: max_delay = avgInterval × 0.5) | ✅ 완료 (2026-03-22) |
 | execution 블록 1fr 그리드 | ExecutionPanel(좌) + NextUploadCard(우) → 단일 외부 카드 내 1fr|1fr 내부 그리드 | ✅ 완료 (2026-03-22) |
@@ -174,6 +176,9 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | **CTR CSV 수집** | download_studio_csv.py — Export 버튼 탐지 + 한국어 CSV 파싱 안정화 | ✅ |
 | **CTR write-back** | generate_active_uploads.py — CSV → _RawData_Master (impressions + ctr + ctr_source + ctr_updated_at) | ✅ |
 | **dirty flag diagnostics** | write-back 실제 변경 시에만 video_diagnostics_engine.py 재실행 | ✅ |
+| **Latest Video Watchdog** | `latest_video_watchdog.py` — 최신 업로드 1개 선택 → `_RawData_Master` / `Video_Diagnostics` / `Channel_CTR_KPI` 교차판단 → `latest_video_watchdog_proposal.json` 저장 | ✅ |
+| **Discord Alert** | `discord_notifier.py` — Discord 웹훅으로 최신 영상 패키징 경보 발송 | ✅ |
+| **Apply / Rollback** | 제목/썸네일 적용(`apply`) + `03_RUNTIME/rollback/<proposal_id>/backup.json` 기반 복구(`rollback`) | ✅ |
 | **GoldenHour Inline Badge** | RecentUploadsTable — ⚡/⏱ 배지 인라인 + ActiveUploadMonitor 블록 제거 | ✅ |
 | **NextUploadCard** | 다음 업로드 + 골든아워 통합 카드. 의사결정 로직(max_delay = avgInterval × 0.5), 대안 옵션 선택, 요일 바차트. TodayBriefCard strategy 블록 제거 | ✅ |
 | **execution 블록 그리드** | 단일 외부 카드 안에서 ExecutionPanel(좌 1fr) + NextUploadCard(우 1fr) 내부 그리드 분할 | ✅ |
@@ -183,27 +188,41 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | **UpdateStatusBar 재명명** | 4항목 → 3항목 병합. (1) 자동화 → **API 싱크** (`youtube-data-sync.yml`). (2) 데이터 정상 + 시트 정상 → **시트 싱크** (Sheets 연결 + `_Pipeline_Health` 탭 병합, 최악 상태 우선). (3) CTR → **스튜디오 싱크** (`reach-data-sync.yml`) | ✅ |
 | **CTR Race Condition 수정** | CSV push 시 두 워크플로우 동시 트리거 → `_RawData_Master.impressions = 0` 덮어쓰기 버그. ① `youtube-data-sync.yml` `paths-ignore: youtube_exports/**` ② 두 워크플로우 `concurrency.group: youtube-data-pipeline` 공유 ③ `api_data_shuttler.py` write guard (`_reach_load_ok`) — `get_all_records()` 실패 시 `clear()` 차단 | ✅ |
 | **download_studio_csv.py v5.1** | ① 드롭다운 선택 `"365일"` (존재하지 않는 텍스트) → `"전체"` (게시 이후 / all-time) ② 다운로드: `Page.setDownloadBehavior` + ZIP 폴링 (CDP 모드 실패) → `page.expect_download()` 전환 | ✅ |
+| **최근 영상 게시이후 2시간 자동화** | `download_recent_video_studio.py` 신규. _RawData_Master → 최근 video_id → Studio 개요+도달범위 탭 DOM 추출 → impressions/ctr cell-by-cell 업데이트. `sync_studio_csv.sh` post-sync A 단계로 통합. LaunchAgent 2시간 주기 기존 인프라 활용. | ✅ |
 
 ---
 
 ### NOW (현재 진행 중)
 
-**[1] 우측 패널 재설계 (Section 9)** — 인기영상 / 기회영상 / 외부유입 패널 → 우측 패널 탭화 + 채널 상태 요약 클릭 드릴다운
+**[1] 우측 패널 / 외부 유입 기능 연결 마감**
+- `externalDrop` runtime 계산 복구 완료
+- 우측 패널 `external` 탭에서 외부 유입 비중 + ExternalTrafficInsightsPanel 임베드 표시 완료
+- 외부 인사이트 카드 / 전환율 카드 / 캠페인 / 커뮤니티 / 콘텐츠 반응 row → 대표 `target_video` 기준 `VideoDetailModal` 드릴다운 연결 완료
 
-상세 설계: Section 9 참조.
+**[2] 구현 우선순위 재정렬**
+- 2026-03-22 개선 보고서
+- 2026-03-23 P0 실행계획표
+- 2026-03-23 UIUX 와이어프레임
+- 현재 코드 상태
 
-**[2] 제품 관점 리팩토링** — `TodayActionController` + `DashboardDiagnosticsController` 구현 완료. 데드코드 3건 삭제 완료.
+위 4개를 대조해, 아래 "통합 구현 순서표"를 단일 진실로 사용한다.
 
 ---
 
-### NEXT — P0/P1
+### NEXT — 통합 구현 순서표
 
-| 순위 | 과제 | 분류 | 왜 지금인가 |
-|------|------|------|------------|
-| **1** | 우측 패널 재설계 — TopVideos / Opportunity / Retention / External 탭화 (Section 9) | 🔴 P0 | 메인 진단 공간 확보 필수 |
-| **2** | H-2 — ChannelPulseRow 토글 opacity 페이드 | 🟡 P1 | 레이아웃 점프 제거 |
-| **3** | 완료 피드백 0.3s 애니메이션 + 실행 후 포커스 유지 | 🟡 P1 | 실행률 직결 |
-| **4** | Electron IPC 알림 — PHASE 10-C/D (앱 밖 OS 레벨 알림) | 🟡 P1 | 타이밍 놓침 방지 |
+| 순서 | 과제 | 분류 | 현재 상태 | 산출물 |
+|------|------|------|-----------|--------|
+| **1** | 외부 유입 마지막 드릴다운 연결 | 🔴 P0 | ✅ 완료 | 외부 인사이트/캠페인/커뮤니티 row → `VideoDetailModal` |
+| **2** | `RightSidePanel.tsx` 구조 분해 | 🔴 P0 | ✅ 완료 — `external` / `kpi inspector` / `top videos` / `retention` 분리, 747줄까지 축소 | section 파일 분리 + 단일 패널 책임 축소 |
+| **3** | `computeChannelHealth()` 엔진 분리 + 산식 문서화 | 🔴 P0 | ✅ 완료 — `src/engine/channelHealthEngine.js`로 분리, 4-pillar 산식 독립 | 별도 score engine + 규격 문서 |
+| **4** | 남은 드릴다운 진입점 전수 통일 | 🔴 P0 | 진행 중 — 핵심 화면은 `VideoDetailModal` 종착, 일부 레거시/context 통일 남음 | 모든 영상 진입점의 종착지 `VideoDetailModal` |
+| **5** | PHASE 10-C/D Electron OS 알림 | 🟡 P1 | 진행 중 — `critical` / `external drop` OS 알림 브릿지 연결 완료 | `main.js` IPC + 알림 트리거 |
+| **6** | PHASE 10-F EXTERNAL_DROP 자동 리포트 | 🟡 P1 | 외부 급감 탐지는 됨, 후속 리포트 자동화 없음 | Redirect 리포트 생성 + task/alert 연결 |
+| **7** | Discord Bot Command Layer | 🟡 P1 | Watchdog는 동작, 명령형 제어 없음 | `/watchdog scan/apply/rollback/status` |
+| **8** | VideoTrafficAdapter + per-video 유입경로 상세 | 🟠 P2 | 채널/패널 수준 외부 유입은 보임 | 영상 단위 유입경로를 `VideoDetailModal`에 연결 |
+| **9** | Golden Hour Level 3 — 업로드 후 6시간 실시간 트래킹 | 🟠 P2 | 추천/리듬은 있음, 실시간 추적은 없음 | 업로드 후 6시간 감시 뷰 |
+| **10** | 번들 크기 경고 해소 + 코드 스플리팅 | 🟠 P2 | 기능 문제는 없지만 경고 지속 | Dashboard/Modal/legacy split |
 
 ---
 
@@ -211,16 +230,40 @@ Block 안에서 fetch·계산·상태 생성 금지.
 
 | 순위 | 과제 | 분류 |
 |------|------|------|
-| 1 | Golden Hour Level 3 — 업로드 후 6시간 실시간 트래킹 | 🟠 P2 |
-| 2 | PHASE 10-F — EXTERNAL_DROP → Redirect 리포트 자동 생성 | 🟠 P2 |
-| 3 | AlgorithmFitPanel (핏 스코어) + ThumbnailABTracker | 🟠 P2 |
-| 4 | VideoTrafficAdapter + VideoDetailModal per-video 유입경로 연결 | 🟠 P2 |
-| 5 | Token 마이그레이션 — 기존 컴포넌트 deprecated alias(`T.text/sub/muted`) → `T.fg.*` 전환 | 🟠 P2 |
-| 6 | Threshold adaptive baseline | ⚪ P3 |
-| 7 | Pattern OS — 이미지 분석 → AI 썸네일 패턴 추천 | ⚪ P3 |
-| 8 | Block Manager UX v3 구현 (Section 3 설계 완료) | ⚪ P3 |
-| 9 | OpportunityPanel — 알고리즘 핏 스코어 기반 기회 영상 추천 | ⚪ P3 |
-| 10 | EarlyPerformancePanel — 업로드 후 조기 성과 전용 뷰 | ⚪ P3 |
+| 1 | AlgorithmFitPanel (핏 스코어) + ThumbnailABTracker | 🟠 P2 |
+| 2 | Token 마이그레이션 — deprecated alias(`T.text/sub/muted`) → `T.fg.*` 전환 | 🟠 P2 |
+| 3 | Threshold adaptive baseline | ⚪ P3 |
+| 4 | Pattern OS — 이미지 분석 → AI 썸네일 패턴 추천 | ⚪ P3 |
+| 5 | Block Manager UX v3 구현 (Section 3 설계 완료) | ⚪ P3 |
+| 6 | OpportunityPanel — 알고리즘 핏 스코어 기반 기회 영상 추천 | ⚪ P3 |
+| 7 | EarlyPerformancePanel — 업로드 후 조기 성과 전용 뷰 | ⚪ P3 |
+
+---
+
+### CONTROL TOWER 판정
+
+지금부터 우선순위는 더 이상 "UI 다듬기"가 아니라 아래 3축이다.
+
+1. 드릴다운 완결
+2. 엔진 분리와 규격화
+3. 자동화 후속 실행
+
+즉, 다음 실제 구현 순서는
+`전수 드릴다운 통일 → OS 알림/외부 리포트 자동화 → Discord 명령 레이어`
+로 진행한다.
+
+---
+
+### ChannelHealth 엔진 규격
+
+- 구현 위치: `soundstorm-panel/src/engine/channelHealthEngine.js`
+- 책임: `computeChannelHealth(diagnostics, kpiHistory, videoDiagnostics)` 단일 진입점
+- 점수 구조: `BASE 50 + P1 채널 기준 + P2 트렌드 + P3 절대 기준 + P4 진단 이슈`
+- P1: 조회수/구독자/알고리즘 점수의 채널 평균 대비 상대 성과
+- P2: 최근 주차 기준 조회수/구독자/알고리즘 추세
+- P3: 채널 평균 CTR/시청유지율의 최소 절대 기준
+- P4: `CRITICAL/HIGH/MEDIUM` 진단 가중치 감점 또는 이슈 없음 보너스
+- 출력 계약: `score / grade / label / breakdown / pillarScores / trend / topIssue / insufficient`
 
 ---
 
@@ -379,6 +422,7 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | 노출 급락 사후 대응 없음 | CRITICAL 자동 알림 + EXTERNAL 리포트 | alert ✅ / 리포트 ❌ |
 | **CTR/impressions 항상 0 (—) 표시** | **원인:** CSV push 시 `youtube-data-sync.yml` + `reach-data-sync.yml` 동시 트리거 → `api_data_shuttler.py`가 `get_all_records()` 후 `clear()` + `update()` 실행 중 `ingestor`가 아직 미실행 상태 → impressions=0으로 확정. **해결:** ① paths-ignore로 동시 트리거 제거 ② concurrency group 공유로 순차 실행 보장 ③ write guard로 읽기 실패 시 덮어쓰기 차단 | ✅ 완료 (2026-03-22) |
 | **Studio CSV 기간 불일치 (게시 이후 미반영)** | **원인:** `download_studio_csv.py`가 `"365일"` 텍스트 선택 시도 → 실제 드롭다운 텍스트는 `"지난 365일"` / `"전체"`, `page.expect_download()` 미사용으로 ZIP 캡처 실패. **해결:** 드롭다운 `"전체"` 선택 (= 게시 이후 all-time), `page.expect_download()` 전환 | ✅ 완료 (2026-03-22) |
+| **최근 영상 게시이후 데이터 공백** | **원인:** 채널 전체 CSV는 1일 1회 전체 집계 → 최근 영상은 데이터 반영 지연 최대 24h. **해결:** `download_recent_video_studio.py` — 2시간마다 최근 video_id 자동 조회, Studio 개요+도달범위 탭 DOM 추출(`1.4천` 한국어 수 파싱), `_RawData_Master` cell-by-cell 직접 업데이트. LaunchAgent 기존 2시간 인프라 재사용 (post-sync A 단계) | ✅ 완료 (2026-03-22) |
 
 ---
 
@@ -430,11 +474,20 @@ Block 안에서 fetch·계산·상태 생성 금지.
 
 | 날짜 | 내용 |
 |------|------|
+| 2026-03-23 | **Discord Bot 1차 명령 스펙 고정** — 1차 명령을 `/watchdog scan`, `/watchdog status`, `/watchdog apply`, `/watchdog rollback` 4개로 제한. `scan mode:safe notify:true`, `apply proposal_id:xxx apply_key:xxx` 형태 채택. 필수 안전장치로 사용자 ID 화이트리스트, 역할 체크, `apply/rollback` 관리자 제한, lock 파일, 명령 실행 로그, subprocess timeout, stdout/stderr 요약 전송 + 원문 파일 저장, 마지막 proposal 자동 기억, rollback 1회 제한을 명시. 구현 전략은 1차 subprocess 우선, 이후 공통 함수 분리로 전환 |
+| 2026-03-23 | **Discord 실행 계층 구현안 추가** — 현재 Webhook 기반 Latest Watchdog는 알림만 가능하므로, 휴대폰 Discord에서 직접 실행하기 위한 `discord_watchdog_bot.py` 계획 추가. 방향은 `Webhook(알림 유지) + Bot(실행 전용)` 2층 구조. 1차 명령: `/watchdog scan`, `/watchdog status`, `/watchdog apply`, `/watchdog rollback`. `apply/rollback` 은 role/user 화이트리스트와 동시 실행 방지 락을 전제로 구현 |
+| 2026-03-23 | **Discord 중심 Latest Video Watchdog 구축** — `07_AUTOMATION_자동화/automation_runtime/latest_video_watchdog.py` 신규. `03_RUNTIME/active_uploads.json` 에서 최신 영상 1개 선택 → `_RawData_Master` / `Video_Diagnostics` / `Channel_CTR_KPI` 교차 읽기 → `observe / title_test / thumbnail_test / repackage_both / content_issue` 판정 → `latest_video_watchdog_proposal.json` 저장. `discord_notifier.py` 추가로 Discord 웹훅 경보 지원. `apply` 명령은 YouTube OAuth 토큰이 수정 권한 스코프를 포함할 때 `videos.update` / `thumbnails.set` 실행, `rollback`은 `03_RUNTIME/rollback/<proposal_id>/backup.json` 스냅샷으로 복구 |
+| 2026-03-23 | **Dashboard decision-driven UX 리팩토링** — 중복 판단 UI 정리. `PrimaryActionHero` / `TodayDecisionCard` / `ChannelDecisionWorkspace` 제거 또는 비활성화, `Status Strip = 상태`, `KPI Panel = 수치`로 역할 분리. 상단 구조를 `AnalyticsHeader + Channel Health + KPI + Performance Drivers` 중심의 얇은 운영 패널로 재배치. `채널 건강도` 독립 우측 칸 제거 → KPI 본체 내부 compact strip으로 병합. 중복 `다음 업로드 추천` 단독 패널 제거 후 execution 블록 내부 패널만 유지 |
+| 2026-03-23 | **KPI 카드/우측 Inspector 재설계** — KPI 카드 내부 확장 상세 제거, 클릭 시 `RightSidePanel`에 KPI 전용 inspector 오픈하도록 흐름 변경. `DashboardDiagFilterContext` + `useDashboardInteractions`에 `selectedKpiInspector` 상태 추가, `KPICards.tsx`는 요약 카드 역할만 수행. 우측 패널 동적 섹션 `kpi` 추가, 제목을 `조회수 진단` / `CTR 진단` / `시청시간 진단` / `구독자 진단` 등 KPI별 진단명으로 표기. Inspector 본문은 `근거 지표 / 원인 / 다음 액션 / 성과 저조 영상`으로 재구성 |
+| 2026-03-23 | **NextUploadCard 추천 로직 보정** — 추천 기준을 주간 슬롯 우선에서 `가장 최근 업로드일 + 2일` cadence 우선으로 수정. 상단 메인 추천 날짜/시간, 기본 추천 옵션, 라벨이 모두 cadence slot을 따르도록 정렬. `시청 피크` 요일 막대는 성과순이 아니라 `월→화→수→목→금→토→일` 고정 정렬로 변경, 오늘 요일 별도 강조 추가 |
+| 2026-03-23 | **Token System 적용 범위 확대 + 런타임 버그 수정** — `tokens.js`에 `T.component.size/radius/surface/shadow/palette`, `T.semantic.surface`, modal/drawer/scrim/text-outline 계층 추가 후 대시보드 핵심부·우측 패널·Execution·모달/드로어까지 토큰 위반 3차 정리. `T.component`를 두 번 할당하면서 `palette`가 덮여 대시보드가 열리지 않던 런타임 버그 수정 (`T.component = { ...T.component, ... }` 병합 방식으로 변경). build 기준 대시보드 재정상화 확인 |
+| 2026-03-23 | **운영 패널 압축 + 컬러 감산** — `KPICards.tsx`에서 Core/Supporting 분리 제거, 모든 KPI 숫자 크기를 보조지표 수준으로 통일해 더 납작한 운영 밴드화. `ExecutionPanel` / `ExecutionStatus` / `RecentUploadsTable` 행 높이·간격 축소. `RightSidePanel`은 폭을 340→312로 조정하고 `width: min(..., 100vw - 24px)` + `overflowX: hidden`으로 좁은 창 잘림 방지. KPI inspector와 KPI 카드의 과한 파랑/주황/빨강 surface를 줄이고, `본문 중립색 + 상태색 제한 사용` 방향으로 재정렬 |
 | 2026-03-22 | **CTR/impressions Race Condition 수정** — 원인: CSV push 시 `youtube-data-sync.yml`(paths 필터 없음) + `reach-data-sync.yml` 동시 트리거 → `api_data_shuttler.py`가 ingestor 실행 전 impressions=0 상태로 `clear()` + `update()` → 데이터 소실. 3-layer hardening 적용: ① `youtube-data-sync.yml` `push.paths-ignore: 07_AUTOMATION_자동화/youtube_exports/**` 추가 (CSV push 시 중복 트리거 제거). ② 두 워크플로우 `concurrency.group: youtube-data-pipeline` 공유 (순차 실행 보장). ③ `api_data_shuttler.py` write guard 추가 — `get_all_records()` 실패 시 `_reach_load_ok = False` 플래그로 `clear()` + `update()` 차단, 기존 데이터 보존 |
 | 2026-03-22 | **download_studio_csv.py v5.1** — ① `_select_365_days()` → `_select_all_time()`: 드롭다운 "전체" 선택 (= 게시 이후 / channel-level all-time). 기존 `get_by_text("365일", exact=True)` 버그 제거 (실제 텍스트 "지난 365일"). ② 다운로드 메커니즘 `Page.setDownloadBehavior` + ZIP 파일 폴링 → `page.expect_download()` 전환 (CDP 모드 안정 동작 확인). 전체 기간 데이터 로드 대기 타임아웃 60s → 90s |
 | 2026-03-22 | **NextUploadCard 통합** — (1) `NextUploadCard.tsx` 신규 생성: 기존 ExecutionStatus 우측 "다음 업로드" 컬럼 + TodayBriefCard 골든아워를 단일 컴포넌트로 통합. 의사결정 로직: `max_delay = avgIntervalDays × 0.5`, `golden_delay ≤ max_delay → "최적 타이밍 선택됨"`, else → `"리듬 유지 우선 선택됨"`, `isOverdue → "즉시 업로드 필요"`. 대안 옵션 2개(리듬 슬롯 vs 골든 슬롯) 클릭 선택, 효율 delta 표시, 요일 바차트. `noCard` prop으로 카드 래퍼 분리. (2) `ExecutionStatus.tsx`: 우측 "다음 업로드" 1fr 컬럼 제거 → 테이블 전체 너비. (3) `blockRegistry.tsx` execution 블록: 단일 외부 카드(`bgCard+border+borderRadius+boxShadow`) + 내부 `1fr 1fr` 그리드로 ExecutionPanel(좌)·NextUploadCard(우) 배치, 중간 `borderSoft` 구분선. strategy 블록에서 TodayBriefCard 제거, ChannelStatusPanel만 유지. (4) `ExecutionPanel.tsx`: `noCard` prop 추가, content/wrapper 분리 |
 | 2026-03-22 | **ChannelStatusPanel 드릴다운** — `StrategyPanel.tsx` → `ChannelStatusPanel.tsx` 이름 변경. 4카드(THUMBNAIL_WEAK/TITLE_DISCOVERY_WEAK/CONTENT_RETENTION_WEAK/ALGORITHM_DISTRIBUTION_LOW) 클릭 → 해당 진단 영상 리스트 펼침 → VideoDetailModal 연결. `fetchVideoTitleMap()` 연동으로 영상 제목 표시 (`_VID_RE=/^[a-zA-Z0-9_-]{11}$/` 로 raw videoId 필터링). orphan 파일 `ContentStrategyPanel.tsx` / `StrategyInsightsPanel.tsx` 삭제. RightSidePanel "채널 전략" → "콘텐츠 전략" 탭명 변경 |
 | 2026-03-22 | **TodayBriefCard 단순화** — "오늘의 전략" 섹션 제거. props: `goldenHour`만 유지 (strategy/healthGrade/onAction 제거). `getGoldenState` 과거 시간 → null 반환 (무의미한 카운트다운 제거). `getNextDateLabel()` 추가 → 다음 발생 날짜 "금 (3/27)" 형식 표시. `strategyEngine.js` `BASE_DAY_SCORES` uploadHour 시간 범위 → 단일 시간값으로 통일 |
+| 2026-03-22 | **최근 영상 게시이후 2시간 자동화** — `download_recent_video_studio.py` 신규. 흐름: `_RawData_Master` upload_date DESC → 최근 video_id 확정 → Studio 개요 탭(`tab-overview?time_period=since_publish`) 직접 진입(안정) → 도달범위 탭 클릭 + 재시도 → DOM `TreeWalker` 텍스트 수집 → `1.4천` 한국어 수 파싱(`parseKorNum`) → impressions=1,400 / ctr=6.1% 추출 → `_RawData_Master` `update_cell()` (cell-by-cell, DATA_RULES 준수). 실패 시 Export 버튼 CSV 다운로드 폴백. `sync_studio_csv.sh` post-sync A 단계로 통합 (Chrome 종료 전 실행). LaunchAgent `com.soundstorm.studio-sync` 기존 2시간(7200s) 인프라 재사용 — 별도 스케줄러 추가 없음. |
 | 2026-03-22 | **UpdateStatusBar 3항목 재명명** — 4항목 → 3항목 병합. `데이터 정상`(Sheets 앱 연결) + `시트 정상`(`_Pipeline_Health` 탭) → **시트 싱크**로 통합 (`calcSheetsAndPipelineStatus`: 최악 상태 우선). 레이블 전면 변경: 자동화→**API 싱크**(`youtube-data-sync.yml`) / 데이터·시트→**시트 싱크** / CTR→**스튜디오 싱크**(`reach-data-sync.yml`). 표시: "🟢 API 싱크 정상 · 시트 싱크 정상 · 스튜디오 싱크 정상" |
 | 2026-03-21 | **CTR CSV 파이프라인 완성** — (1) `download_studio_csv.py`: `networkidle` → `domcontentloaded` 전환 (Studio에서 networkidle 영구 pending), 재시도 버튼 클릭 로직 제거 (데이터 로드 리셋 방지), `--disable-background-mode` 플래그 제거 (Analytics 타이머 차단 원인), 탭 재사용 제거 → 항상 `new_page()`, Export 버튼 `aria-label*=` 부분 일치 탐지. (2) `generate_active_uploads.py`: CTR null → 쿨다운 무시 강제 CSV 다운로드, 한국어 CSV 컬럼(`콘텐츠`=video_id, `노출 클릭률 (%)`=CTR) 파싱, `csv_ok` 조건 제거→`_RECENT_CSV.exists()` 직접 체크, `writeback_ctr_to_master()` 추가(impressions+ctr+ctr_source+ctr_updated_at, cell-by-cell), dirty flag → 변경 있을 때만 `video_diagnostics_engine.py` 재실행. (3) `sync_studio_csv.sh`: git push 후 `generate_active_uploads.py` 자동 후처리 추가 |
 | 2026-03-21 | **GoldenHour Inline Badge** — `RecentUploadsTable.tsx`에 `GoldenHourBadge` 컴포넌트 인라인 구현 (⚡ ≤6h 초록 / ⏱ >6h 주황). `ExecutionPanel.tsx`에서 `readActiveUploads()` IPC 로드. `ActiveUploadMonitor` 독립 블록 → blockRegistry에서 완전 제거 (import + JSX 삭제) |
@@ -510,10 +563,110 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | `scripts_스크립트/sync_studio_csv.sh` | CDP Chrome 시작 → download_studio_csv.py 실행 → git push → generate_active_uploads.py 후처리 |
 | `scripts_스크립트/download_studio_csv.py` | Playwright로 YouTube Studio Analytics Export 버튼 클릭 → CSV 다운로드 (`studio_reach_report_recent.csv`) |
 | `scripts_스크립트/generate_active_uploads.py` | Sheets 활성 영상 목록 → CSV CTR 읽기 → _RawData_Master write-back → active_uploads.json 생성 |
+| `automation_runtime/latest_video_watchdog.py` | 최신 업로드 1개 감시 전용 오케스트레이터. `scan --mode safe/auto` → proposal 생성, `apply` → YouTube 제목/썸네일 반영, `rollback` → 마지막 변경 복구 |
+| `automation_runtime/discord_notifier.py` | Discord 웹훅 전송 유틸. Latest Watchdog 경보 채널 |
+| `automation_runtime/discord_watchdog_bot.py` | 예정. Discord Slash Command 수신 → `latest_video_watchdog.py` 실행 브리지 (`scan/apply/rollback/status`) |
 | `analytics/video_diagnostics_engine.py` | IMPRESSION/CTR/RETENTION 3축 진단 → Video_Diagnostics 탭 |
 | `analytics/alert_engine.py` | CRITICAL → 이메일 발송 + alert_history.json 중복 방지 |
 | `analytics/action_tracker.py` | baseline 등록 → 3일 후 SUCCESS/FAILED 자동 판정 |
 | `engine/pipeline_health_monitor.py` | 전수 건강 검진 + 자동 복구 (cron 03:00 KST) |
+
+#### Latest Video Watchdog 실행 흐름
+
+```
+active_uploads.json
+  └─ 최신 video_id 선택
+      ├─ _RawData_Master 현재 메타데이터
+      ├─ Video_Diagnostics diagnosis/confidence
+      └─ Channel_CTR_KPI 기준선
+            ↓
+latest_video_watchdog.py scan
+  └─ action 판정
+       observe / title_test / thumbnail_test / repackage_both / content_issue
+            ↓
+latest_video_watchdog_proposal.json 저장
+  └─ Discord 웹훅 알림 (선택)
+            ↓
+apply
+  ├─ videos.update (제목)
+  ├─ thumbnails.set (썸네일, 준비된 파일 있을 때만)
+  └─ rollback 백업 저장
+            ↓
+rollback
+  └─ 마지막 백업 스냅샷으로 제목/썸네일 복구
+```
+
+#### Discord 실행 계층 — 구현안
+
+현재 상태:
+
+- `discord_notifier.py` 는 Webhook 기반이라 **알림만 가능**
+- Discord 안에서 `/apply` 같은 **실행**은 불가
+
+목표 구조:
+
+```
+Discord Slash Command / Button
+  └─ discord_watchdog_bot.py
+       ├─ /watchdog scan
+       ├─ /watchdog apply
+       ├─ /watchdog rollback
+       └─ /watchdog status
+            ↓
+      latest_video_watchdog.py subprocess 실행
+            ↓
+      stdout 요약 → Discord 응답
+      proposal_id / action / 결과 로그 갱신
+```
+
+명령 설계:
+
+| 명령 | 동작 | 비고 |
+|------|------|------|
+| `/watchdog scan mode:safe notify:true` | `scan --mode safe --notify` 실행 | 기본 명령. 최신 영상 분석 + Discord 보고 |
+| `/watchdog apply proposal_id:xxx apply_key:xxx` | 마지막 proposal 또는 지정 proposal 적용 | 1차는 proposal_id + apply_key 검증 필수 |
+| `/watchdog rollback` | 마지막 적용 롤백 | 가장 최근 apply 기준 |
+| `/watchdog status` | 최근 proposal / 최근 apply / auto 가능 여부 조회 | 휴대폰 점검용 |
+
+권한 / 안전 규칙:
+
+- Bot 토큰 + Application Command 등록 필요
+- 허용 사용자 ID 화이트리스트 필수
+- 허용 역할(role) 체크 필수
+- `apply` / `rollback` 은 관리자 role 또는 user id 제한
+- 동일 영상 중복 `apply` 방지: 기존 auto/manual apply log 재사용
+- 명령 실행 중 동시 요청 방지: 파일 lock 또는 단일 프로세스 mutex 필요
+- `rollback` 은 마지막 1회 apply 에 대해서만 허용
+
+필수 런타임 안전장치:
+
+- 명령 실행 로그 저장 (`03_RUNTIME/discord_watchdog_command_log.json` 예정)
+- subprocess timeout 필수 (`scan` 짧게, `apply/rollback` 더 길게)
+- stdout / stderr 가 길면 Discord에는 요약만 보내고 원문은 런타임 파일에 저장
+- 최근 proposal_id 자동 기억 (`latest_video_watchdog_proposal.json` 재사용)
+- `status` 는 마지막 scan 결과, 마지막 apply, auto 가능 여부를 한 번에 요약
+- `apply` 전 확인 메시지 1회 추가 (ephemeral 또는 confirm step)
+
+구현 순서:
+
+1. `discord_watchdog_bot.py` 신규
+2. `/watchdog scan` 먼저 연결
+3. `/watchdog status` 추가
+4. `/watchdog apply` / `/watchdog rollback` 연결
+5. 마지막에 버튼형 인터랙션(`Apply` / `Rollback` / `Rescan`) 확장
+
+운영 원칙:
+
+- Webhook 알림은 유지
+- Bot 명령은 실행 전용
+- 즉, **알림 채널**과 **실행 채널**을 논리적으로 분리
+- 1차 운영은 Slash Command만, 버튼형은 2차
+
+실행 전략:
+
+- 1차 구현은 `latest_video_watchdog.py` 를 **subprocess로 직접 호출**
+- 이후 안정화되면 내부 공통 함수를 분리해 `CLI 진입점 유지 + Bot은 함수 호출 또는 얇은 subprocess 래퍼` 구조로 전환
+- 즉, **지금은 subprocess 우선 / 나중에 라이브러리형 분리**
 
 #### Electron (electron/)
 
@@ -568,6 +721,64 @@ sync_studio_csv.sh
 | 한국어 CSV 파싱 실패 | 컬럼명이 영어 키(`video id`)가 아닌 `콘텐츠` / `노출 클릭률 (%)` | 폴백 체인 파서 구현 |
 | csv_ok=False면 기존 CSV 무시 | CSV가 존재해도 `csv_ok` 플래그로 차단 | `_RECENT_CSV.exists()` 직접 체크로 교체 |
 | CTR null 시 쿨다운 스킵 안됨 | 쿨다운 체크가 CTR null 체크보다 앞에 있었음 | null 체크를 쿨다운 조건 앞으로 이동 |
+
+---
+
+#### 8-B-1. 텔레그램 실행 브리지 + Studio CSV 디버깅 기록 (2026-03-23)
+
+목표:
+
+- `휴대폰 Telegram`에서 `/run sync`
+- `PC/CDP Chrome`에서 Studio CSV 자동 다운로드 + 파이프라인 실행
+- 결과를 다시 `Telegram`으로 회신
+
+이번에 실제로 시도한 것:
+
+| 시도 | 문제점 | 확인된 원인 | 해결 방법 |
+|------|--------|------------|-----------|
+| Telegram `/ping` 왕복 테스트 | 초기 연결 불확실 | Bot 토큰/브리지 동작 미검증 | `telegram_command_bridge.py` 최소 명령(`/ping`, `/status`, `/run sync`)으로 분리 후 왕복 확인 |
+| Telegram 시작 메시지 전송 | Telegram 400 parse error | MarkdownV2 escape 누락 | `telegram_notifier.py` 기본 전송을 plain text 중심으로 변경 |
+| `/run sync` 실행 직후 실패 | `run_and_notify.py`가 `--`를 실행 파일로 인식 | argparse remainder 처리 미흡 | `normalize_command()`로 선행 `--` 제거 |
+| `download_studio_csv.py` 실패 후 2차/3차 재시도까지 붕괴 | `sys.exit()`가 Playwright cleanup 중첩 유발 | event loop 정리 중 `RuntimeError`, 이후 Python stdio 깨짐 | `sys.exit()` 제거, 예외 raise 방식으로 통일 |
+| CDP 연결 실패 (`::1:9222`) | Chrome은 열려 있는데 Playwright 접속 실패 | `localhost`가 IPv6 `::1`로 해석, Chrome은 `127.0.0.1:9222`만 listen | CDP URL을 `http://127.0.0.1:9222`로 변경 |
+| Analytics 흰 화면 / Export 버튼 영구 미발견 | 페이지는 열렸지만 데이터 영역이 비어 보임 | 문서대로 `networkidle`/불필요 Chrome 플래그/로딩 간섭 이슈 | `wait_until='domcontentloaded'` 유지, `--disable-background-mode` 미사용 원칙 재확인 |
+| "재시도" 버튼 루프 | 재시도 누를수록 더 꼬임 | 문서 기록대로 로딩 상태 초기화 | 재시도 버튼 자동 클릭 로직 전체 제거 |
+| 기간 드롭다운에서 `전체` 선택 실패 | 텍스트는 찾는데 실제 클릭 불가 | 숨겨진 탭 라벨 `전체`와 드롭다운 옵션 `전체`가 공존 | `tp-yt-paper-item[test-id="lifetime"]` 우선 선택으로 수정 |
+| lifetime 전환 후 Export 버튼이 없다고 판단 | 버튼은 보이는데 탐지 실패 | selector의 `.first`가 숨겨진 복제 노드를 잡음 | `_find_export_button()`를 "보이는 노드 중 첫 번째" 탐색으로 변경 |
+| Export/CSV는 눌렀는데 ZIP 저장 0바이트 | `expect_download()` 이벤트는 발생 | CDP 모드에서 `save_as()`가 불안정 | `download.path()`의 임시 artifact 경로를 직접 복사하는 폴백 추가 |
+| 특정 런에서 page가 갑자기 닫힘 | `Page.wait_for_timeout: Target page/context/browser has been closed` | YouTube Studio가 `전체` 전환 직후 내부 페이지 핸들을 갈아끼우는 케이스 | `context.pages`에서 현재 활성 Studio page를 재획득하는 `_get_active_studio_page()` 추가 |
+| 간헐적 `net::ERR_QUIC_PROTOCOL_ERROR` | 재시도 3차에서 랜덤 네트워크 실패 | Chrome QUIC 레이어와 Studio/CDP 조합 불안정 | `sync_studio_csv.sh`의 CDP Chrome 기동에 `--disable-quic` 추가 |
+| Telegram bridge 다중 실행 시 409 | Bot은 살아있는데 응답 불안정 | `getUpdates` long polling 인스턴스가 2개 이상 | 운영 원칙: bridge는 항상 1개만 실행 |
+
+실제로 해결된 상태:
+
+- `download_studio_csv.py` 단독 실행 성공
+- `sync_studio_csv.sh --mode=recent` 성공
+- `run_pipeline.sh` 전체 성공
+- default 모드 기준 `studio_reach_report.csv` 다운로드 + ZIP 해제 + `video_daily_views.csv` 저장 성공
+- 후속 단계인 `git commit / push / download_recent_video_studio.py / generate_active_uploads.py`까지 성공
+- 실제 푸시 커밋: `8da4c80`
+
+최종적으로 유효하다고 확인된 실행 흐름:
+
+```text
+Telegram /run sync
+  -> telegram_command_bridge.py
+  -> run_and_notify.py
+  -> run_pipeline.sh
+  -> sync_studio_csv.sh
+  -> download_studio_csv.py
+  -> Git push
+  -> post-sync A/B
+  -> Telegram 결과 회신
+```
+
+이번 작업에서 남긴 운영 메모:
+
+- CDP Chrome은 `~/.soundstorm_chrome_cdp` 프로필을 계속 사용해야 로그인 세션이 유지된다.
+- CDP Chrome은 `127.0.0.1:9222` 기준으로 붙는 것을 기본값으로 유지한다.
+- Telegram bridge는 반드시 1개만 띄운다.
+- Studio UI는 고정되지 않으므로, Export/CSV selector는 text 기반보다 `test-id`/`aria-label`/가시성 필터 조합이 더 안전하다.
 
 ---
 
@@ -1155,6 +1366,21 @@ App.jsx
 | **3** ✅ | H-3 수정 — `handleStrategyAction()` scrollIntoView + setDiagHighlighted | 완료 |
 | **4** | P0-2 수정 — `navigateToPanel()` + ChannelPulseRow 연결 | 없음 |
 | **5** | Section 9 Step 1~3 — `useVideoPortfolio()` + `RightSidePanel` | DashboardDiagnosticsController 완료 후 |
+
+---
+
+### 10-I. 2026-03-23 구현 스냅샷
+
+현재 대시보드 구현 상태를 짧게 요약하면 다음과 같다.
+
+- `DashboardPage.tsx`는 220줄 수준까지 축소되어 페이지 조립 책임이 많이 줄었다.
+- `RightSidePanel.tsx`는 기능은 확장됐지만 여전히 1000줄 이상이라 구조 분해가 남아 있다.
+- 상단 IA는 중복 카드 제거, KPI 밴드 재정리, `NextUploadCard` 단일 진입점화까지 반영됐다.
+- KPI 클릭은 카드 내부 확장이 아니라 우측 inspector를 열고, 마지막 드릴다운은 `VideoDetailModal`로 통일하는 방향으로 맞춰졌다.
+- 외부 유입 이상 감지는 2026-03-23 기준 `externalDrop` runtime 계산 복구로 다시 작동한다.
+- 품질 상태는 `npm run build` 성공, `npm test` 136 / 136 통과, 현재 lint 스크립트 범위 0 에러다.
+
+즉, P0의 큰 골조는 많이 전진했지만 `RightSidePanel` 분해, 건강도 점수 체계 외부화, 번들 경고 해소는 아직 남아 있다.
 | **6** | Section 9 Step 8 — DiagnosticsSection 정리 (Retention/External 제거) | DashboardDiagnosticsController 완료 후 |
 | **7** ✅ | 전략 패널 3개 삭제 (DashboardStrategySection + DailyStrategyPanel + GoldenHourPanel) | 완료 |
 | **8** ✅ | `YouTubeKpiStrip` 삭제 — 참조 파일 확인 후 KpiCardsPanel 교체 | 완료 |

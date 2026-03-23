@@ -23,3 +23,20 @@ service_account*
 # Python
 __pycache__/
 *.pyc
+
+# Large media files - DO NOT track in git
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.avi
+*.mkv
+*.wav
+*.WAV
+*.aiff
+*.AIFF
+*.mp3
+*.flac
+*.zip
+*.tar
+*.tar.gz

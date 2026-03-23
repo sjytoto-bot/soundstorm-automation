@@ -3,12 +3,12 @@
 //
 // 상태 우선순위:
 //   1. 자동화(Actions) — 최상위 / 지연 시 자동 dispatch
-//   2. 시트(Sheets) 동기화
-//   3. 스냅샷 — Sheets 실패 + snapshot 사용 시에만 표시
+//   2. 시트 연동(Sheets sync + Pipeline Health) — 두 소스 중 최악 상태 표시
+//   3. CTR/Reach 동기화
 //
 // 각 항목에 시간 정보 표시:
-//   🟢 자동화 정상 · 방금   🟢 데이터 정상 · 방금
-//   🟡 자동화 지연 · 79분 미실행   🟢 데이터 정상 · 방금
+//   🟢 자동화 정상 · 방금   🟢 시트 정상 · 방금
+//   🟡 자동화 지연 · 79분 미실행   🔴 시트 장애 2개 · 10분 전
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
@@ -34,6 +34,7 @@ type Dot = "🟢" | "🟡" | "🔴";
 type ActionsStatus   = "healthy" | "delayed" | "failed";
 type SheetsStatus    = "healthy" | "degraded" | "failed";
 type PipelineStatus  = "healthy" | "warn" | "failed" | "unknown";
+type SheetsAndPipelineStatus = "healthy" | "degraded" | "warn" | "failed";
 
 interface DispatchLog {
   at:     Date;
@@ -112,10 +113,9 @@ export function shouldDispatch({
   const successAt       = lastSuccess ? new Date(lastSuccess.updated_at).getTime() : 0;
   const minSinceSuccess = Math.round((now - successAt) / 60_000);
 
-  // 앱 최초 시작(lastDispatchAt=0)이면 30분 기준으로 즉시 dispatch
-  // 이후 폴링은 AUTO_TRIGGER_MIN(60분) 기준 유지 (중복 방지)
-  const threshold = lastDispatchAt === 0 ? 30 : AUTO_TRIGGER_MIN;
-  if (minSinceSuccess < threshold) return "ok";
+  // 최초 실행/이후 폴링 모두 동일하게 60분 기준을 적용한다.
+  // bootstrap 예외를 두면 최신 success가 있어도 중복 dispatch가 발생할 수 있다.
+  if (minSinceSuccess < AUTO_TRIGGER_MIN) return "ok";
 
   // ③ 5분 safety lock — 중복 dispatch 방지
   if (lastDispatchAt > 0 && now - lastDispatchAt < SAFETY_LOCK_MS) return "cooldown";
@@ -189,31 +189,31 @@ function calcActionsStatus(runs: ActionsRun[] | null): {
   time:       string;
   minutesAgo: number;
 } {
-  if (!runs)        return { status: "delayed", main: "자동화 확인 중", time: "",            minutesAgo: 0 };
-  if (!runs.length) return { status: "failed",  main: "자동화 연결 실패", time: "",           minutesAgo: 9999 };
+  if (!runs)        return { status: "delayed", main: "API 싱크 확인 중", time: "",            minutesAgo: 0 };
+  if (!runs.length) return { status: "failed",  main: "API 싱크 연결 실패", time: "",           minutesAgo: 9999 };
 
   const failCount = runs.slice(0, 5).filter(r => r.conclusion === "failure").length;
-  if (failCount >= 5) return { status: "failed", main: "자동화 중단", time: `${failCount}회 연속 실패`, minutesAgo: 9999 };
+  if (failCount >= 5) return { status: "failed", main: "API 싱크 중단", time: `${failCount}회 연속 실패`, minutesAgo: 9999 };
 
   const latest    = runs[0];
   const isRunning = latest.status === "in_progress" || latest.status === "queued";
 
   if (isRunning) {
-    return { status: "healthy", main: "자동화 실행 중", time: timeAgo(latest.updated_at), minutesAgo: 0 };
+    return { status: "healthy", main: "API 싱크 실행 중", time: timeAgo(latest.updated_at), minutesAgo: 0 };
   }
 
   if (latest.conclusion === "failure") {
-    return { status: "failed", main: "자동화 중단", time: timeAgo(latest.updated_at), minutesAgo: 9999 };
+    return { status: "failed", main: "API 싱크 중단", time: timeAgo(latest.updated_at), minutesAgo: 9999 };
   }
 
   const msAgo      = Date.now() - new Date(latest.updated_at).getTime();
   const minutesAgo = Math.round(msAgo / 60_000);
   const t          = timeAgo(latest.updated_at);
 
-  if (minutesAgo < 30)  return { status: "healthy", main: "자동화 정상",   time: t,                         minutesAgo };
-  if (minutesAgo < 90)  return { status: "delayed", main: "자동화 지연",   time: `${minutesAgo}분 미실행`,  minutesAgo };
+  if (minutesAgo < 30)  return { status: "healthy", main: "API 싱크 정상",   time: t,                         minutesAgo };
+  if (minutesAgo < 90)  return { status: "delayed", main: "API 싱크 지연",   time: `${minutesAgo}분 미실행`,  minutesAgo };
   const h = Math.round(minutesAgo / 60);
-  return               { status: "failed",  main: "자동화 중단",   time: `${h}시간 미실행`,     minutesAgo };
+  return               { status: "failed",  main: "API 싱크 중단",   time: `${h}시간 미실행`,     minutesAgo };
 }
 
 function calcSheetsStatus(syncError: string | null, lastSyncAt: string | null): {
@@ -225,10 +225,10 @@ function calcSheetsStatus(syncError: string | null, lastSyncAt: string | null): 
 } {
   if (!syncError) {
     const t = lastSyncAt ? timeAgo(lastSyncAt) : "";
-    return { status: "healthy", main: "데이터 정상", time: t, usingSnapshot: false };
+    return { status: "healthy", main: "시트 싱크 정상", time: t, usingSnapshot: false };
   }
   if (syncError === "SYNC_FAILED") {
-    return { status: "failed", main: "데이터 연결 실패", time: "", usingSnapshot: false };
+    return { status: "failed", main: "시트 싱크 실패", time: "", usingSnapshot: false };
   }
   if (syncError.startsWith("STALE_SNAPSHOT:")) {
     const savedAt    = syncError.replace("STALE_SNAPSHOT:", "");
@@ -236,13 +236,13 @@ function calcSheetsStatus(syncError: string | null, lastSyncAt: string | null): 
     const minutesAgo = Math.round(msAgo / 60_000);
     return {
       status:        "degraded",
-      main:          "데이터 연결 지연",
+      main:          "시트 싱크 지연",
       time:          timeAgo(savedAt),
       usingSnapshot: true,
       snapshotAge:   minutesAgo,
     };
   }
-  return { status: "degraded", main: "데이터 확인 필요", time: "", usingSnapshot: false };
+  return { status: "degraded", main: "시트 싱크 확인 필요", time: "", usingSnapshot: false };
 }
 
 // ─── Reach (CTR/Impressions) 동기화 상태 ─────────────────────────────────────
@@ -253,8 +253,8 @@ function calcReachStatus(runs: ActionsRun[] | null): {
   main:   string;
   time:   string;
 } {
-  if (!runs)        return { status: "delayed", main: "CTR 확인 중",   time: "" };
-  if (!runs.length) return { status: "failed",  main: "CTR 동기화 실패", time: "" };
+  if (!runs)        return { status: "delayed", main: "스튜디오 싱크 확인 중",   time: "" };
+  if (!runs.length) return { status: "failed",  main: "스튜디오 싱크 실패", time: "" };
 
   const lastSuccess = runs
     .filter(r => r.conclusion === "success")
@@ -263,17 +263,17 @@ function calcReachStatus(runs: ActionsRun[] | null): {
   if (!lastSuccess) {
     const latest = runs[0];
     if (latest.conclusion === "failure") {
-      return { status: "failed", main: "CTR 동기화 실패", time: timeAgo(latest.updated_at) };
+      return { status: "failed", main: "스튜디오 싱크 실패", time: timeAgo(latest.updated_at) };
     }
-    return { status: "delayed", main: "CTR 데이터 없음", time: "" };
+    return { status: "delayed", main: "스튜디오 싱크 데이터 없음", time: "" };
   }
 
   const hoursAgo = Math.round((Date.now() - new Date(lastSuccess.updated_at).getTime()) / 3_600_000);
   const t = timeAgo(lastSuccess.updated_at);
 
-  if (hoursAgo < REACH_DELAYED_H) return { status: "healthy", main: "CTR 정상",    time: t };
-  if (hoursAgo < REACH_FAILED_H)  return { status: "delayed", main: "CTR 지연",    time: `${hoursAgo}시간 전` };
-  return                                 { status: "failed",  main: "CTR 동기화 중단", time: `${hoursAgo}시간 전` };
+  if (hoursAgo < REACH_DELAYED_H) return { status: "healthy", main: "스튜디오 싱크 정상",    time: t };
+  if (hoursAgo < REACH_FAILED_H)  return { status: "delayed", main: "스튜디오 싱크 지연",    time: `${hoursAgo}시간 전` };
+  return                                 { status: "failed",  main: "스튜디오 싱크 중단", time: `${hoursAgo}시간 전` };
 }
 
 // ─── _Pipeline_Health 탭 → 시트 상태 계산 ────────────────────────────────────
@@ -286,7 +286,7 @@ function calcPipelineHealth(rows: Record<string, string>[]): {
   warnCount: number;
 } {
   if (!rows || rows.length === 0)
-    return { status: "unknown", main: "시트 미확인", time: "", failCount: 0, warnCount: 0 };
+    return { status: "unknown", main: "시트 싱크 미확인", time: "", failCount: 0, warnCount: 0 };
 
   const failCount = rows.filter(r => r.status === "FAIL" || r.status === "MISSING").length;
   const warnCount = rows.filter(r => r.status === "WARN").length;
@@ -297,29 +297,78 @@ function calcPipelineHealth(rows: Record<string, string>[]): {
   const checkedAtNorm = checkedAt ? checkedAt.replace(/\s*KST$/, '').trim() : null;
   const time = checkedAtNorm ? timeAgo(checkedAtNorm) : "";
 
-  if (failCount > 0)  return { status: "failed",  main: `시트 장애 ${failCount}개`,  time, failCount, warnCount };
-  if (warnCount > 0)  return { status: "warn",    main: `시트 경고 ${warnCount}개`,  time, failCount, warnCount };
-  return               { status: "healthy", main: "시트 정상",                      time, failCount, warnCount };
+  if (failCount > 0)  return { status: "failed",  main: `시트 싱크 장애 ${failCount}개`,  time, failCount, warnCount };
+  if (warnCount > 0)  return { status: "warn",    main: `시트 싱크 경고 ${warnCount}개`,  time, failCount, warnCount };
+  return               { status: "healthy", main: "시트 싱크 정상",                       time, failCount, warnCount };
+}
+
+// ─── calcSheetsAndPipelineStatus ─────────────────────────────────────────────
+// Sheets 동기화 + _Pipeline_Health 탭 → 두 소스 중 최악 상태를 단일 항목으로 반환
+// 우선순위: failed > degraded > warn > healthy
+
+function calcSheetsAndPipelineStatus(
+  syncError:   string | null,
+  lastSyncAt:  string | null,
+  healthRows:  Record<string, string>[] | null,
+): {
+  status:        SheetsAndPipelineStatus;
+  main:          string;
+  time:          string;
+  usingSnapshot: boolean;
+  snapshotAge?:  number;
+} {
+  const s = calcSheetsStatus(syncError, lastSyncAt);
+  const p = healthRows !== null && healthRows.length > 0
+    ? calcPipelineHealth(healthRows)
+    : null;
+
+  // 수치 매핑: failed=3 > degraded/warn=2 > healthy/unknown=0
+  const sheetsLevel =
+    s.status === "failed"   ? 3 :
+    s.status === "degraded" ? 2 : 0;
+  const pipelineLevel = p
+    ? (p.status === "failed" ? 3 : p.status === "warn" ? 2 : 0)
+    : 0;
+
+  // 양쪽 정상
+  if (sheetsLevel === 0 && pipelineLevel === 0) {
+    return { status: "healthy", main: "시트 싱크 정상", time: s.time || (p?.time ?? ""), usingSnapshot: false };
+  }
+
+  // 더 나쁜 쪽이 이긴다 (동점이면 sheets 우선 — 데이터 흐름의 상위 레이어)
+  if (sheetsLevel >= pipelineLevel) {
+    return {
+      status:        s.status === "failed" ? "failed" : "degraded",
+      main:          s.main,
+      time:          s.time,
+      usingSnapshot: s.usingSnapshot,
+      snapshotAge:   s.snapshotAge,
+    };
+  } else {
+    return {
+      status:        p!.status === "failed" ? "failed" : "warn",
+      main:          p!.main,
+      time:          p!.time,
+      usingSnapshot: false,
+    };
+  }
 }
 
 // ─── buildSummary ─────────────────────────────────────────────────────────────
 
 function buildSummary(
-  actionsMain:    string,
-  actionsTime:    string,
-  actionsStatus:  ActionsStatus,
-  sheetsMain:     string,
-  sheetsTime:     string,
-  sheetsStatus:   SheetsStatus,
-  usingSnapshot:  boolean,
-  snapshotAge?:   number,
-  triggered?:     boolean,
-  pipelineMain?:  string,
-  pipelineTime?:  string,
-  pipelineStatus?: PipelineStatus,
-  reachMain?:     string,
-  reachTime?:     string,
-  reachStatus?:   ActionsStatus,
+  actionsMain:   string,
+  actionsTime:   string,
+  actionsStatus: ActionsStatus,
+  sheetsMain:    string,
+  sheetsTime:    string,
+  sheetsStatus:  SheetsAndPipelineStatus,
+  usingSnapshot: boolean,
+  snapshotAge?:  number,
+  triggered?:    boolean,
+  reachMain?:    string,
+  reachTime?:    string,
+  reachStatus?:  ActionsStatus,
 ): SummaryItem[] {
   const items: SummaryItem[] = [];
 
@@ -330,9 +379,10 @@ function buildSummary(
   const actionsTimeLabel = triggered ? "▶ 자동 재실행 중" : actionsTime;
   items.push({ dot: actionsDot, main: actionsMain, time: actionsTimeLabel });
 
+  // 시트 연동 — Sheets 동기화 + Pipeline Health 병합 결과
   const sheetsDot: Dot =
-    sheetsStatus === "healthy"  ? "🟢" :
-    sheetsStatus === "degraded" ? "🟡" : "🔴";
+    sheetsStatus === "healthy"               ? "🟢" :
+    sheetsStatus === "degraded" || sheetsStatus === "warn" ? "🟡" : "🔴";
   items.push({ dot: sheetsDot, main: sheetsMain, time: sheetsTime });
 
   // CTR/Impressions 동기화 상태 (reach-data-sync.yml)
@@ -351,14 +401,6 @@ function buildSummary(
         ? `${snapshotAge}분 전`
         : `${Math.round(snapshotAge / 60)}시간 전`;
     items.push({ dot, main: "이전 데이터 표시 중", time: snapshotTime });
-  }
-
-  // 파이프라인 시트 건강 — 데이터 있을 때만 표시
-  if (pipelineStatus && pipelineStatus !== "unknown" && pipelineMain) {
-    const dot: Dot =
-      pipelineStatus === "healthy" ? "🟢" :
-      pipelineStatus === "warn"    ? "🟡" : "🔴";
-    items.push({ dot, main: pipelineMain, time: pipelineTime ?? "" });
   }
 
   return items;
@@ -543,22 +585,16 @@ export default function UpdateStatusBar({ syncError, lastSyncAt = null }: Update
     calcActionsStatus(runs);
 
   const { status: sheetsStatus, main: sheetsMain, time: sheetsTime, usingSnapshot, snapshotAge } =
-    calcSheetsStatus(syncError, lastSyncAt);
+    calcSheetsAndPipelineStatus(syncError, lastSyncAt, healthRows);
 
   const { status: reachStatus, main: reachMain, time: reachTime } =
     calcReachStatus(reachRuns);
-
-  const { status: pipelineStatus, main: pipelineMain, time: pipelineTime } =
-    healthRows !== null
-      ? calcPipelineHealth(healthRows)
-      : { status: "unknown" as PipelineStatus, main: "", time: "" };
 
   const items = buildSummary(
     actionsMain,   actionsTime,   actionsStatus,
     sheetsMain,    sheetsTime,    sheetsStatus,
     usingSnapshot, snapshotAge,
     triggered,
-    pipelineMain,  pipelineTime,  pipelineStatus,
     reachMain,     reachTime,     reachStatus,
   );
 
@@ -592,7 +628,7 @@ export default function UpdateStatusBar({ syncError, lastSyncAt = null }: Update
               <>
                 <span style={{ color: T.muted, fontSize: T.font.size.xxs }}>·</span>
                 <span style={{
-                  fontSize:   10,
+                  fontSize:   T.font.size.xxs,
                   fontFamily: T.font.familyMono,
                   color:      item.dot === "🟡" || item.dot === "🔴" ? textColor : T.muted,
                 }}>
@@ -612,7 +648,7 @@ export default function UpdateStatusBar({ syncError, lastSyncAt = null }: Update
             display:    "flex",
             alignItems: "center",
             gap:        3,
-            fontSize:   10,
+            fontSize:   T.font.size.xxs,
             fontFamily: T.font.familyMono,
             color:      T.muted,
           }}>

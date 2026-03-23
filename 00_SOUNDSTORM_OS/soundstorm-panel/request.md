@@ -1,1039 +1,272 @@
+# SOUNDSTORM Dashboard 프론트엔드 재구성 보고서
 
-# 현재 엔진 파이프라인 (최신)
-metricEngine
-trafficEngine
-momentumEngine
-strategyScoreEngine
-correlationEngine
-insightEngine
-trafficGrowthEngine
-earlyMomentumEngine
-algorithmEntryEngine
-thumbnailAnalyzerEngine
-contentClusterEngine
-uploadTimingEngine
-trendDetectionEngine
-performancePredictionEngine
-strategyOptimizerEngine
-strategyRecommendationEngine
+작성일: 2026-03-23
+대상: `soundstorm-panel`
+기준:
+- `02_ARCHITECTURE/Creator_OS_마스터_보고서.md`
+- `02_ARCHITECTURE/Tokens_System_개선및적용_보고서_2026-03-23.md`
+- 현재 대시보드 구현 상태
 
---
-
-@SOUNDSTORM Dashboard — Master Spec (프로젝트 헌법).md
-
-# SOUNDSTORM Dashboard 구축 로드맵
-PHASE 1  Data Schema 안정화   ✔
-PHASE 2  Snapshot Engine    ✔
-PHASE 3  Adapter Layer      ✔
-PHASE 4  Controller Layer   ✔
-PHASE 5  Core Dashboard UI  ✔
-PHASE 6  Video Intelligence ✔
-
-## PHASE 7  Insight Engine     ✔
-Snapshot Engine
-AnalyticsAdapter
-useAnalyticsController
-DashboardPage
-Video Intelligence
-Opportunity Engine
-Insight Engine
-
-## PHASE 8  Strategy Engine    
-### PHASE 8A External Traffic Insight Engine  ✔
-src/engines/externalTraffic/
-ExternalTrafficEngine.ts
-ReferrerClassifier.ts
-PlatformMapper.ts
-IntentAnalyzer.ts
-AudienceAnalyzer.ts
-ExternalQualityAnalyzer.ts
-ExternalStrategyGenerator.ts
-
-### PHASE 8B Redirect Tracker (Tracking)  ✔
-redirect_server.py    ✔
-  PHASE 8B Setup Automation 완료 요약:                       
-                                                             
-  파일: redirect_tracker/redirectLinks.json                  
-  작업: battle, dungeon, stealth, ambient 슬러그로 교체      
-  ────────────────────────────────────────                   
-  파일: soundstorm-panel/config/redirect_config.json         
-  작업: redirectLogsPath + autoDetect 키로 생성              
-  ────────────────────────────────────────
-  파일: scripts/start_redirect.sh
-  작업: 서버 시작 스크립트 (chmod +x, 로그 경로 자동 지정)
-  ────────────────────────────────────────
-  파일: scripts/test_redirect.sh
-  작업: curl 기반 5단계 테스트 스크립트 (chmod +x)
-  ────────────────────────────────────────
-  파일: redirect_server.py
-  작업: ensure_log_file() 추가 → 시작 시 CSV 자동 생성
-  ────────────────────────────────────────
-  파일: electron/main.js
-  작업: redirectLogsPath 우선 읽기, 상대경로 path.resolve
-  처리
-    추가
-
-  서버 실행 방법:
-  bash scripts/start_redirect.sh          # port 8080 (기본)
-  bash scripts/start_redirect.sh 5050     # port 지정
-⏺ 모든 테스트 통과. 결과 정리:                               
-                                                             
-  ┌────────────┬─────────────────────────────────────────┐   
-  │   테스트   │                  결과                   │   
-  ├────────────┼─────────────────────────────────────────┤   
-  │ [1] Health │ status: ok, log_count: 0 ✅             │
-  │  check     │                                         │   
-  ├────────────┼─────────────────────────────────────────┤   
-  │ [2]        │ 5개 슬러그 (assassin/battle/dungeon/ste │   
-  │ /api/links │ alth/ambient) 정상 반환 ✅              │   
-  ├────────────┼─────────────────────────────────────────┤
-  │ [3] /r/ass │ HTTP 404 — video 미설정이므로 정상 동작 │
-  │ assin      │  ✅                                     │
-  ├────────────┼─────────────────────────────────────────┤
-  │ [4]        │ click 로그 1건 기록됨 (ip_hash,         │
-  │ /api/logs  │ platform=DIRECT, campaign=discord_dnd)  │
-  │            │ ✅                                      │
-  ├────────────┼─────────────────────────────────────────┤
-  │ [5]        │ 캠페인별 집계 정상 ✅                   │
-  │ /api/stats │                                         │
-  └────────────┴─────────────────────────────────────────┘
-
-  추가 확인된 동작:
-  - 서버 시작 시 redirect_logs.csv 자동 생성
-  (ensure_log_file()) ✅
-  - /r/assassin 접근 → video 없어도 클릭 자체는 CSV에 기록됨
-  ✅
-  - IP 해시 (12ca17b4) 정상 처리 ✅
-
-  실제 사용 시 redirectLinks.json의 각 slug에 YouTube video
-  ID를 채우면 리다이렉트가 즉시 작동합니다.
-
-
-
-
-
-### PHASE 8C Redirect Marketing Intelligence    ✔
-src/engines/redirectIntelligence/
-CampaignAnalyzer.ts
-CommunityAnalyzer.ts
-ContentReactionAnalyzer.ts
-TimePatternAnalyzer.ts
-RedirectMarketingEngine.ts
-
-### PHASE 8D Opportunity Engine     ✔
-src/engines/opportunity/
-SearchOpportunityAnalyzer.ts
-AlgorithmOpportunityAnalyzer.ts
-ExternalOpportunityAnalyzer.ts
-RedirectRecommendationEngine.ts
-OpportunityEngine.ts
-
-### PHASE 8E Content Strategy Engine   ✔ 
-다음단계 넘어가기 전에 UI 정리중
-- 액션 리포트 수정중... 기회탐색, 콘텐츠 전략 넣는중...
-- 채널 분석 이름 아래에 데이터 업데이트 날짜 표기
-- 모든 탭에 있는 액션리포트들 모아서 맨 위에 액션 리포트 자세히보기에 넣어야함
-- (추후) 매 주 업로드 현황 및 업로드 예정일 및 실천 대시보드를 제일 위로 배치. => 이 대시보드는 자동으로 컨텐츠 생성해주는 기능과 연결
+문서 목적:
+현재 대시보드를 `$frontend-skill` 관점에서 다시 해석하고, 정보량이 아니라 `작업 표면의 위계, 패널 역할, 첫 인지 품질`을 개선하는 프론트 기준을 확정한다.
 
 ---
 
-목표
+## 0. 전제
 
-```
-Dashboard → 자동 실행
-```
+이번 개선의 기준은 "더 화려하게 만들기"가 아니다.
 
-예
+운영 화면에서 프론트엔드의 목표는 아래 4가지다.
 
-```
-추천 콘텐츠 생성
-→ 자동 플레이리스트 생성
-```
+1. 첫 화면에서 무엇이 주연인지 바로 보여준다
+2. 패널마다 역할을 분리해 시선 경쟁을 줄인다
+3. 카드/배지/경계선보다 레이아웃과 타이포로 위계를 만든다
+4. 사용자가 어디를 먼저 봐야 하는지 5초 안에 알 수 있게 한다
 
-또는
+이 전제는 Creator OS의 아래 원칙을 깨지 않는 범위에서만 허용된다.
 
-```
-SEO 키워드
-→ 자동 제목 생성
-```
+- `Action First`
+- `One Primary Action`
+- `Zero Scroll Execution`
+- `Learning Loop`
+- `새 기능 추가 시 DashboardPage.tsx를 수정하지 않는다`
 
----
-
-
-
-최종 아키텍처
-
-```
-YouTube API
-↓
-Python Automation
-↓
-Google Sheets
-↓
-Adapters
-↓
-Controllers
-↓
-Dashboard UI
-↓
-Insight Engine
-↓
-Opportunity Engine
-↓
-Strategy Engine
-↓
-Content Strategy Panel
-```
-
+즉, 프론트 개선도 결국 `행동 우선 구조를 더 선명하게 만드는 작업`이어야 한다.
 
 ---
 
+## 1. Frontend Skill 기준 3문장
+
+### 1-1. Visual Thesis
+
+SOUNDSTORM 대시보드는 `차분한 컨트롤 룸 위에 지금 중요한 것만 선명하게 떠오르는 decision-first 작업면`이어야 한다.
+
+### 1-2. Content Plan
+
+- Primary workspace: 오늘의 판단과 핵심 실행
+- Support: 현재 성과와 핵심 KPI
+- Detail: 원인 진단, 영향 영상, 학습 피드백
+- Secondary inspector: 우측 패널은 보조 근거와 실행 준비 영역
+
+### 1-3. Interaction Thesis
+
+- 상단 핵심 영역은 짧고 빠르게 반응해야 한다
+- 진단과 우측 패널은 펼침/드릴다운 중심으로 조용하게 반응해야 한다
+- hover는 장식이 아니라 affordance만 강화해야 한다
 
 ---
 
+## 2. 현재 프론트 상태 진단
 
-## PHASE 9A Execution Panel     ✔
-Creator Control Panel
+현재 대시보드는 기능량은 충분하지만, 시각 구조는 아직 아래 문제를 안고 있다.
 
-기능
+1. 메인 작업면과 보조 패널이 모두 비슷한 밀도와 카드 언어를 사용한다
+2. compact summary 영역도 card처럼 보여서 "요약 줄"이 아니라 "작은 패널"처럼 느껴진다
+3. 우측 패널은 inspector라기보다 또 하나의 작은 대시보드처럼 보인다
+4. badge, border, card radius가 많아 정보보다 UI 장치가 먼저 눈에 들어온다
+5. 패널 이름은 있지만 각 패널의 시각적 책임이 충분히 분리되지 않았다
 
-이번주 업로드
-업로드 예정
-다음 업로드
-콘텐츠 생성 버튼
+한 줄 요약:
 
-예
-
-CONTENT EXECUTION
-
-이번주 업로드
-✔ Royal Procession
-
-이번주 예정
-• Assassin Theme
-• War Drums Battle
-
-[콘텐츠 생성]
-
-이 패널이 대시보드의 중심입니다.
-
-## PHASE 9B Strategy Panel   
-ExecutionPanel        완료
-StrategyInsightsPanel 완료
-Analytics             완료
-OpportunityPanel      
-EarlyPerformance      
-
-목표
-
-콘텐츠 전략 표시
-
-UI
-
-CONTENT STRATEGY
-
-예
-
-추천 콘텐츠
-
-Dark Assassin Theme
-War Drums Battle
-Samurai Combat
-
-여기에 나중에
-
-[콘텐츠 생성]
-
-버튼이 붙습니다.
-
-## PHASE 9C Dashboard Refactor    
-목표
-
-패널 구조 정리
-
-최종 순서
-
-CONTENT EXECUTION
-ACTION CENTER
-CONTENT STRATEGY
-OPPORTUNITY
-CHANNEL INSIGHT
-
-즉
-
-Execution
-Action
-Strategy
-Opportunity
-Insight
-
-
-## 원하는 구조 (Drilldown Creator Panel)
-
-예를 들어 지금 화면 기준으로:
-
-### Level 1 — 요약 (항상 보임)
-
-```
-CREATOR CONTROL PANEL
-
-⚠ 콘텐츠 품질 저하
-조회수 -37.9%
-
-추천 액션
-• 썸네일/제목 A/B 테스트
-• 인트로 20초 이내 단축
-```
-
-여기까지만 **기본 화면**
+`현재 문제는 데이터 부족이 아니라, 모든 패널이 비슷한 목소리로 말하는 프론트 위계 부족이다.`
 
 ---
 
-### Level 2 — 분석 (클릭 시)
+## 3. 패널별 분석
 
-```
-왜?
+## 3-1. Top Area
 
-유입 경로
-구독자 32.4%
-추천 영상 24.5%
+현재 상단은 기능적으로는 잘 구성되어 있지만, 프론트 관점에서는 아래 개선이 필요하다.
 
-성장 지표
-조회수 -37.9%
-시청시간 -46%
-```
+- primary action 아래의 보조 영역이 아직 card 덩어리처럼 느껴진다
+- top area 전체가 "poster-like first viewport"보다 "좋은 운영 카드 모음"에 가깝다
+- 상단 액션과 하단 근거의 시각적 긴장 차이가 더 벌어져야 한다
 
----
+개선 방향:
 
-### Level 3 — 데이터 (더 클릭)
+- primary workspace는 가장 넓고 가장 조용한 면을 가진다
+- 보조 정보는 card보다 inset / divider / compact metric로 낮춘다
+- accent color는 primary action과 severity에만 집중한다
 
-```
-데이터
+## 3-2. Channel Pulse Row
 
-인기 영상
-급상승 영상
-유입 경로 분석
-```
+이 영역의 역할은 항상 표시되는 `상태 요약 스트립`이어야 한다.
 
----
+현재 문제:
 
-### UI 구조
+1. 요약 줄인데도 card box 성격이 강하다
+2. divider, badge, outline, 버튼이 많아 compact strip 특유의 속도가 약해진다
+3. 펼침 토글과 진단 버튼이 status line보다 더 UI처럼 느껴진다
 
-즉 카드 하나가 이렇게 됩니다.
+개선 방향:
 
-```
-Action Summary
-    ▼
-Analysis
-    ▼
-Data
-```
+- 카드가 아니라 얇은 command strip처럼 다룬다
+- label은 더 조용하게, 수치는 더 또렷하게
+- 행동 버튼은 utility control처럼 축소
+- 상태 변화는 배경색보다 타이포와 소형 상태점으로 처리
 
----
+## 3-3. Channel Insight / KPI Area
 
-### 실제 제품들이 쓰는 구조
+이 영역은 메인 작업면의 support layer다.
 
-이 구조는 많이 쓰입니다.
+현재 문제:
 
-### Vercel
+1. KPI 카드가 아직 다수의 equal-weight objects처럼 느껴진다
+2. support KPI와 core KPI의 밀도 차이가 더 분명해야 한다
+3. 진단 정보와 학습 정보가 같은 카드 언어를 공유해 서열이 덜 보인다
 
-```
-Alert
-↓
-Why
-↓
-Logs
-```
+개선 방향:
 
-### Linear
+- core KPI는 louder
+- supporting KPI는 inset group
+- diagnosis는 report가 아니라 explanation layer로 처리
 
-```
-Issue
-↓
-Context
-↓
-Activity
-```
+## 3-4. RightSidePanel
 
-### Notion AI
+우측 패널은 `secondary inspector`여야 한다.
 
-```
-Suggestion
-↓
-Reason
-↓
-Sources
-```
+현재 문제:
 
----
+1. 섹션 헤더, badge, 열림 영역, 내부 카드가 모두 강하게 보여 작은 대시보드처럼 보인다
+2. 섹션마다 카드 스타일이 달라 언어가 통일되지 않는다
+3. 전략/기회/유지율 섹션이 각각 따로 말해서 inspector의 차분함이 약하다
+4. collapsed 상태와 open 상태의 성격 차이가 커서, 열면 갑자기 정보량이 폭증한다
 
+개선 방향:
 
+- 우측 패널은 card stack이 아니라 structured list + inspector panels로 다룬다
+- 헤더는 더 얇게, 섹션은 더 명확하게, 내부 콘텐츠는 더 plain하게
+- 위험도는 left border보다 count / label / tone 차이로 해결한다
+- inspector는 메인을 보조해야지 메인과 경쟁하면 안 된다
 
-```
-ActionCard
+## 3-5. Retention / Opportunity / Strategy 내부 콘텐츠
 
-├ Summary
-├ Insight
-└ Data
-```
+현재 문제:
 
-상태
+- 내부 항목이 또 작은 카드들로 반복된다
+- badge와 버튼 treatment가 섹션마다 다르다
+- same-level objects가 미묘하게 다른 컴포넌트 패턴을 가진다
 
-```
-Insight
-Data
-```
+개선 방향:
 
-는 **collapse 상태**
+- cardless list 우선
+- open row 하나만 강조
+- CTA는 섹션마다 같은 size / weight / placement 유지
 
 ---
 
+## 4. 프론트 리팩토링 원칙
 
+### 4-1. Primary Workspace / Secondary Inspector 분리
 
-당신이 말한 구조는 정확히 이것입니다.
+메인 화면은 판단과 실행의 작업면이다.
+우측 패널은 보조 근거와 실행 준비 inspector다.
 
-```
-Summary
-↓
-Insight
-↓
-Data
-```
+두 영역은 같은 시각 언어를 쓰면 안 된다.
 
-그리고 UI는
+- 메인: 넓고 조용한 면, 큰 위계 차이
+- 우측: 촘촘하지만 얇은 구조, 명확한 라벨, 최소한의 카드
 
-```
-Drilldown
-```
+### 4-2. No Cards By Default
 
----
+운영 화면에서 card는 기본값이 아니다.
 
+우선순위는 아래가 맞다.
 
+1. plain section
+2. divider
+3. inset surface
+4. card only if interaction needs enclosure
 
+### 4-3. Utility Copy 우선
 
-# 색깔 가이드
-좋습니다.
-아래는 **Soundstorm Creator Dashboard UI 디자인 가이드 + 개발 요청서**입니다.
-목표는 **알록달록한 색을 제거하고 분석 도구다운 차분한 UI로 정리하는 것**입니다.
+모든 섹션 헤더와 버튼은 제품 카피가 아니라 운영 카피여야 한다.
 
----
+좋은 예:
 
-## Soundstorm Creator Dashboard
+- `현재 포커스`
+- `저성과 영상`
+- `시청유지율`
+- `다음 조치`
 
-## UI 디자인 가이드 (v1)
+나쁜 예:
 
-목표
+- 추상적 전략 카피
+- 무드성 문장
+- 마케팅식 헤드라인
 
-```
-색 최소화
-정보 우선순위 강화
-분석 도구 스타일 UI
-```
+### 4-4. Interaction은 존재감을 만들되 조용해야 한다
 
-참고 스타일
-
-```
-Linear
-Notion
-Vercel
-Stripe Dashboard
-```
-
-핵심 원칙
-
-```
-색 = 의미
-```
-
-색을 장식이 아니라 **정보 전달용으로만 사용합니다.**
+- hover는 background/border tone change 위주
+- expand는 천천히, CTA는 빠르게
+- 우측 패널은 flashy animation 금지
+- 중요한 상태는 animation보다 contrast 우선
 
 ---
 
-## 1. 컬러 시스템
+## 5. 현재 적용 우선순위
 
-사용 색상은 **3개만 사용합니다.**
+### P0
 
-| 역할    | 색    |
-| ----- | ---- |
-| 기본 UI | Gray |
-| 액션    | Blue |
-| 문제    | Red  |
+1. `ChannelPulseRow.jsx`
+2. `RightSidePanel.tsx`
 
-컬러 코드
+이유:
 
-```
-Gray  #64748B
-Blue  #3B82F6
-Red   #EF4444
-```
+- 둘 다 첫 인지 품질에 직접 영향
+- card 과잉과 UI 장치 과잉이 가장 눈에 띄는 영역
+- 패널 역할 분담이 이 둘에서 가장 먼저 드러난다
 
-보조 색
+### P1
 
-```
-Background  #F8FAFC
-Card        #FFFFFF
-Border      #E2E8F0
-Text        #0F172A
-Subtext     #64748B
-```
+1. `AnalyticsHeader.tsx`
+2. `KPICards.tsx`
+3. `UpdateStatusBar.tsx`
+4. `Topbar.jsx`
+
+### P2
+
+1. Right panel 내부 섹션 통일
+2. 전략 / 기회 / retention row 패턴 통일
+3. metric / badge / CTA 토큰 적용 확대
 
 ---
 
-## 2. 색 사용 규칙
+## 6. 이번 리팩토링에서 실제로 바꿔야 할 것
 
-UI 전체 색 비율
+### 6-1. Channel Pulse Row
 
-```
-Gray 90%
-Blue 8%
-Red 2%
-```
+- card 느낌을 줄인다
+- status strip처럼 재구성한다
+- indicator와 utility action의 비중을 재조정한다
+- expanded 상태도 surface density만 조금 올리고 box 강조는 줄인다
 
-의미
+### 6-2. RightSidePanel
 
-```
-Gray → 정보
-Blue → 행동
-Red → 문제
-```
+- panel header를 더 얇고 조용하게 만든다
+- accordion header를 inspector list로 바꾼다
+- 내부 card 반복을 줄이고 plain rows를 늘린다
+- collapsed/open 상태의 언어를 일치시킨다
 
-금지
+### 6-3. Section Language
 
-```
-초록
-보라
-주황
-여러 색 badge
-```
+- 같은 수준의 항목은 같은 label 구조
+- 같은 종류의 CTA는 같은 높이
+- 같은 severity는 같은 color logic
 
 ---
 
-## 3. 카드 디자인
+## 7. 최종 판단
 
-모든 카드 공통 스타일
+SOUNDSTORM 대시보드의 프론트 문제는 "못생김"이 아니라 "역할이 다른 패널들이 비슷한 목소리로 보이는 것"에 가깝다.
 
-```
-background: white
-border: 1px solid #E2E8F0
-border-radius: 10px
-```
+따라서 지금 필요한 것은:
 
-Hover
+1. 메인을 더 메인답게 만든다
+2. 우측 패널을 inspector답게 만든다
+3. compact row를 strip답게 만든다
+4. 카드와 배지를 줄이고 타이포와 레이아웃으로 위계를 만든다
 
-```
-border-color: #CBD5F5
-```
+한 줄 결론:
 
-그림자
-
-```
-없음
-또는 매우 약함
-```
-
----
-
-## 4. Badge 시스템
-
-색은 **3종만 사용**
-
-### FIX
-
-```
-background: #FEF2F2
-text: #B91C1C
-border: #FECACA
-```
-
-표시
-
-```
-[FIX]
-```
-
----
-
-### HOT
-
-```
-background: #EFF6FF
-text: #1D4ED8
-border: #BFDBFE
-```
-
-표시
-
-```
-[HOT]
-```
-
----
-
-### INFO
-
-```
-background: #F1F5F9
-text: #475569
-border: #E2E8F0
-```
-
-표시
-
-```
-[INFO]
-```
-
----
-
-## 5. 버튼 디자인
-
-버튼은 **2종만 사용**
-
-### Primary Button
-
-```
-background: #3B82F6
-text: white
-```
-
-사용
-
-```
-콘텐츠 생성
-```
-
----
-
-### Secondary Button
-
-```
-background: white
-border: 1px solid #CBD5F5
-text: #334155
-```
-
-사용
-
-```
-플레이리스트 생성
-SEO 생성
-```
-
----
-
-## 6. Topic Momentum 디자인
-
-현재
-
-```
-초록 pill 여러 개
-```
-
-변경
-
-```
-outline pill
-```
-
-스타일
-
-```
-border: #E2E8F0
-text: #334155
-background: white
-```
-
-예
-
-```
-심장을
-때리는
-한국적
-강렬한
-```
-
----
-
-## 7. Upload Candidate 카드
-
-강조는 **좌측 border만 사용**
-
-HOT 예
-
-```
-border-left: 4px solid #3B82F6
-```
-
-Momentum
-
-```
-border-left: 4px solid #CBD5F5
-```
-
----
-
-## 8. Strategy 카드
-
-카드 색 사용 금지
-
-구분 방식
-
-```
-좌측 border
-badge
-```
-
-예
-
-```
-| RED  | FIX
-| BLUE | KEYWORD
-| GRAY | OPERATION
-```
-
----
-
-## 9. 숫자 강조
-
-증가율만 색 사용
-
-예
-
-```
-+261.8%
-+19.3%
-+13.9%
-```
-
-스타일
-
-```
-color: #16A34A
-font-weight: 600
-```
-
----
-
-## 10. 타이포그래피
-
-제목
-
-```
-font-weight: 600
-font-size: 16px
-```
-
-본문
-
-```
-font-size: 14px
-color: #334155
-```
-
-보조 텍스트
-
-```
-font-size: 13px
-color: #64748B
-```
-
----
-
-## 개발 요청서
-
-대상
-
-```
-CreatorControlPanel.tsx
-StrategyInsightsPanel.tsx
-StrategyCard.tsx
-UploadCandidateCard.tsx
-```
-
-목적
-
-```
-대시보드 컬러 시스템 단순화
-```
-
----
-
-## 1. 기존 컬러 제거
-
-삭제 대상
-
-```
-green card background
-purple badge
-orange badge
-multi-color cards
-```
-
----
-
-## 2. 카드 스타일 통일
-
-모든 카드
-
-```
-background: #FFFFFF
-border: 1px solid #E2E8F0
-border-radius: 10px
-```
-
----
-
-## 3. Badge 색상 통일
-
-사용 가능한 badge
-
-```
-FIX
-HOT
-INFO
-```
-
-색상 규칙
-
-```
-FIX → red
-HOT → blue
-INFO → gray
-```
-
----
-
-## 4. Topic Momentum 스타일 변경
-
-현재
-
-```
-green filled pill
-```
-
-변경
-
-```
-outline pill
-```
-
-스타일
-
-```
-background: white
-border: 1px solid #E2E8F0
-color: #334155
-```
-
----
-
-## 5. 버튼 색상 정리
-
-Primary
-
-```
-콘텐츠 생성
-```
-
-Secondary
-
-```
-플레이리스트 생성
-SEO 생성
-```
-
----
-
-## 6. Strategy 카드 스타일
-
-카드 색 사용 금지
-
-구분 방식
-
-```
-badge
-left border
-```
-
----
-
-## 7. Upload Candidate 스타일
-
-HOT
-
-```
-left border: blue
-```
-
-Momentum
-
-```
-left border: gray
-```
-
----
-
-## 기대 효과
-
-개선 전
-
-```
-알록달록
-시각적 피로
-정보 집중도 낮음
-```
-
-개선 후
-
-```
-차분한 분석 UI
-전문적인 SaaS 스타일
-가독성 상승
-```
-
----
-
-
-
-# 뉴 로드맵
-
-STAGE 1
-Thumbnail Intelligence
-
----
-STAGE 2
-Thumbnail Engine
-│
-├─ 1 Thumbnail Intelligence
-├─ 2 Style Intelligence
-├─ 3 Prompt Generation
-├─ 4 Visual Analysis
-├─ 5 Attention Map Engine
-├─ 6 Auto Layout Engine
-├─ 7 Template Rendering Engine
-├─ 8 Thumbnail Studio UI
-└─ 9 Thumbnail A/B Testing Engine
-
-Backend
-Flask API
-style_engine
-Google Sheets
-OpenCV
-Frontend
-React Drawer
-API fetch
-state management
-fallback system
-skeleton loading
-canvas rendering
-
----
-
-       
-결론부터 명확하게 👇
-
-👉 **지금 단계 E (NavigationContext + 드릴다운) 진행하는 게 맞습니다.**
-단, **“UX 기능”으로 만들지 말고 “운영 속도 개선 장치”로 설계해야 합니다.**
-
----
-
-# 메인 대시보드 문제점 및 개선
-1. CHANNEL INSIGHT: 
-1) CTR 기간별 수집이 안됨. 데이터 수집 체크 필요
-
-2) VIEWS
-▼ -45.4%
-SUBS
-+52
-▼ -62.6%
-WATCH
-3.0만분
-▼ -59.4%
-AVG
-1:57
-▼ -25.9%
-LIKES
-253
-▼ -49%
-CTR
-4.4%
-▼ -29.7%
-REV
-₩12,653
-- 각 카드를 누르면 근거 데이터가 나와야함
-=> 
-
-
-~~3) 각 카드들 이름 한국어로 변경 (VIEWS → 조회수, SUBS → 구독자, WATCH → 시청시간, AVG → 평균 시청시간, LIKES → 좋아요, CTR → 클릭률, REV → 예상 수익)~~
-
-~~1) 더 자세히보기 삭제할게(그 안에 나오는 블럭들도 같이 삭제)~~
-
-2) 채널 건강도 그래프: 
-=> 근거 데이터가 너무 단순함. 
-“유튜브 알고리즘 기반 건강도 점수 시스템”
-점수 공식
-가중치
-감점 룰
-1️⃣ 채널 기준 (필수)
-평균 대비 비교
-2️⃣ 트렌드 기준
-최근 vs 과거
-3️⃣ 최소 절대 기준
-너무 낮은 경우 컷
-
-등등 점수 시스템이 만들어져야함. 
-
-보고서 작성해
-
-- 쓸데없이 자리를 많이 차지하는 듯 싶음. ui에서 제거하거나, 아니면 그래프 크기를 줄이는 방향으로 개선 필요
-- 만약 그래프를 줄여서 남긴다면, 채널 건강도의 근거 데이터가 무엇인지 명확하게 나와야할 것 같음. 예를 들어, 채널 건강도가 낮은 이유가 조회수 감소 때문이라면, 조회수 감소 그래프가 같이 나오는 식으로
-
-
-------
-
-
-1. 영상 상세:  
-2) 어떤 경우 영상 상세로 들어가게 되는지 명확하지 않은 것 같음. 
-- 항상 드릴다운으로 클릭을 했을때 최종 종착지가 결국 영상 상세 데이터가 되었으면 함. 
-- 예를 들어, 채널 인사이트에서 CTR 감소 카드 누르면 CTR 감소한 영상들 리스트 나오고, 그 영상들 중 하나를 누르면 그 영상의 상세 데이터가 나오는 식으로 
-- 모든 영상 상세에 언제 데이터인지 Last updated 표시 (단순 전체 업로드 말고, 영상의 실제 데이터 들어온 Last updated. 영상마다 데이터 업데이트 되는 시점이 다르므로.)
-
-
-3. CONTENT EXECUTION
-- "조회" -> "조회수" 로 변경
-- 최근 10일 -> 최근 30일로 변경
--> 실제 데이터도 최근 30일 데이터로 변경. (csv 자동 업데이트 데이터도 어차피 최근 30일 데이터로 들어오므로)
-- "최근 업로드 성과" 옆에 "최근 10일" 텍스트는 삭제
-
-3. ACTION CENTER
-- 안에 아무런 블록이 없는데 지워도 되는건지
-
-해결방안 보고서 작성해
-
-----
-
-
-4. CONTENT STRATEGY
-1) 오늘의 전략: 아무 의미가 없어보임. 왜 필요한지 이유 설명하고, 삭제해도 되는지 검토
-
-2) 골든아워: 
-- 이미 금요일이 지났는데 계속 금요일 기준으로 나옴. -> 다음 추천 시간으로 변경하고 
-- "다음 추천 시간까지 다음 추천까지 21시간 43분" 이 부분은 Ui 삭제
-- 업로드 3시간 전 완성 권장, 1시간 전 알림 설정 삭제할게. 
-- 추천 시간을 18:00~20:00 이런식으로 범위를 크게 주지 말고, 정확한 시간으로 설정해
-
-3) 채널 상태 요약
-- 썸네일 개선 필요, 검색 노출 부족, 초반 몰입도 문제, 알고리즘 확산 부족
-각 카드를 누르면 -> 어떤 영상이 문제인지 -> 그 영상을 누르면 영상 상세 데이터 나오게 
-- 사이드 패널에 이와 관련된 데이터가 같이 나오는 식으로 개선 필요
-
-
-5. 패널 이름과 현재 패널 안에 있는 데이터들이랑 맞지 않는 것 같음. 검토 필요.
-
-
-
-해결방안 보고서 작성해 
-
-
-
-# 사이드 패널 문제점 및 개선
+`이번 프론트 리팩토링의 목표는 새 UI를 더하는 것이 아니라, 대시보드의 각 패널이 자기 역할에 맞는 표정을 갖게 만드는 것이다.`

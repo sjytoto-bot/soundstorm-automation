@@ -1,0 +1,21 @@
+/* ── Global app styles ─────────────────────────────────────────────────────── */
+/* T.primary = #2563EB, T.bgApp = #F8FAFC (토큰 직접 참조 불가 → 값 사용) */
+
+/* ── Skeleton shimmer ─────────────────────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position:  200px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+  background-size: 400px 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+select:focus              { outline: none; }
+.yaml-textarea:focus      { border-color: #2563EB !important; }
+.log-row:hover            { background: #F8FAFC !important; }
+.text-btn:hover           { text-decoration: underline; }
+.track-card               { user-select: none; }

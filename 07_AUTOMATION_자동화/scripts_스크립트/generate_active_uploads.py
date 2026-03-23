@@ -151,6 +151,135 @@ def read_active_uploads_sheet(gc) -> list[dict]:
 
 # ── CTR 데이터 취득 ────────────────────────────────────────────────────────────
 
+def writeback_ctr_to_master(gc, ctr_map: dict[str, dict]) -> bool:
+    """
+    CSV에서 확보한 CTR/impressions를 _RawData_Master 시트에 write-back.
+    - ctr_source == "csv" 이고 CTR이 실제 값인 행만 대상
+    - 셀 단위 업데이트 (DATA_RULES: bulk setValues 금지)
+    - impressions/ctr 컬럼이 이미 채워진 경우 덮어쓰지 않음 (기존 데이터 보호)
+    반환: 실제 셀 변경이 발생했으면 True (dirty flag)
+    """
+    targets = {
+        vid: d for vid, d in ctr_map.items()
+        if d.get("ctr_source") == "csv" and d.get("ctr") is not None
+    }
+    if not targets:
+        return False
+
+    try:
+        ss = gc.open_by_key(SPREADSHEET_ID)
+        ws = ss.worksheet("_RawData_Master")
+    except Exception as e:
+        print(f"  ⚠️  _RawData_Master 열기 실패: {e}")
+        return False
+
+    try:
+        all_values = ws.get_all_values()
+    except Exception as e:
+        print(f"  ⚠️  _RawData_Master 읽기 실패: {e}")
+        return False
+
+    if not all_values:
+        return False
+
+    header = [h.strip() for h in all_values[0]]
+
+    try:
+        vid_col = header.index("video_id")
+        imp_col = header.index("impressions")
+        ctr_col = header.index("ctr")
+    except ValueError as e:
+        print(f"  ⚠️  _RawData_Master 필수 컬럼 없음: {e}")
+        return False
+
+    # 선택 컬럼 (없어도 실패 안 함)
+    src_col = header.index("ctr_source")      if "ctr_source"      in header else -1
+    upd_col = header.index("ctr_updated_at")  if "ctr_updated_at"  in header else -1
+
+    if src_col == -1:
+        print("  ℹ️  ctr_source 컬럼 없음 — 출처 기록 스킵 (_RawData_Master에 컬럼 추가 권장)")
+    if upd_col == -1:
+        print("  ℹ️  ctr_updated_at 컬럼 없음 — 타임스탬프 기록 스킵")
+
+    now_str = _now_kst().strftime("%Y-%m-%dT%H:%M:%S+09:00")
+    dirty = False
+
+    for row_idx, row in enumerate(all_values[1:], start=2):
+        vid = row[vid_col].strip() if vid_col < len(row) else ""
+        if vid not in targets:
+            continue
+
+        d = targets[vid]
+        cur_imp = row[imp_col].strip() if imp_col < len(row) else ""
+        cur_ctr = row[ctr_col].strip() if ctr_col < len(row) else ""
+
+        imp_updated = ctr_updated = False
+
+        # impressions: 비어있거나 0이면 갱신
+        if not cur_imp or cur_imp in ("0", "0.0"):
+            try:
+                ws.update_cell(row_idx, imp_col + 1, d["impressions"] or 0)
+                imp_updated = True
+            except Exception as e:
+                print(f"  ⚠️  impressions write 실패 ({vid}): {e}")
+
+        # ctr: 비어있거나 0이면 갱신
+        if not cur_ctr or cur_ctr in ("0", "0.0"):
+            try:
+                ws.update_cell(row_idx, ctr_col + 1, round(d["ctr"], 6))
+                ctr_updated = True
+            except Exception as e:
+                print(f"  ⚠️  ctr write 실패 ({vid}): {e}")
+
+        # 출처 + 타임스탬프 (변경 여부 무관하게, 컬럼 있으면 항상 기록)
+        if src_col != -1:
+            try:
+                ws.update_cell(row_idx, src_col + 1, "csv_recent")
+            except Exception as e:
+                print(f"  ⚠️  ctr_source write 실패 ({vid}): {e}")
+
+        if upd_col != -1:
+            try:
+                ws.update_cell(row_idx, upd_col + 1, now_str)
+            except Exception as e:
+                print(f"  ⚠️  ctr_updated_at write 실패 ({vid}): {e}")
+
+        if imp_updated or ctr_updated:
+            dirty = True
+            print(
+                f"  ✅ write-back: {vid}"
+                + (f" | impressions={d['impressions']}" if imp_updated else "")
+                + (f" | ctr={d['ctr']*100:.2f}%" if ctr_updated else "")
+                + f" | source=csv_recent | at={now_str}"
+            )
+        else:
+            print(f"  ℹ️  {vid}: impressions/ctr 이미 채워짐 — source/timestamp만 갱신")
+
+    return dirty
+
+
+def run_video_diagnostics_engine() -> None:
+    """write-back으로 데이터가 갱신된 경우에만 diagnostics 엔진 재실행."""
+    engine_path = _AUTO_ROOT / "analytics" / "video_diagnostics_engine.py"
+    if not engine_path.exists():
+        print(f"  ⚠️  diagnostics 엔진 없음: {engine_path}")
+        return
+    print("  video_diagnostics_engine.py 실행 중...")
+    try:
+        res = subprocess.run(
+            [sys.executable, str(engine_path)],
+            timeout=120, capture_output=True, text=True,
+        )
+        if res.returncode == 0:
+            print("  ✅ diagnostics 갱신 완료")
+        else:
+            print(f"  ❌ diagnostics 실패 (exit {res.returncode}): {res.stderr[:200]}")
+    except subprocess.TimeoutExpired:
+        print("  ❌ diagnostics 타임아웃 (120초)")
+    except Exception as e:
+        print(f"  ❌ diagnostics 오류: {e}")
+
+
 def fetch_ctr_from_master(gc, video_ids: list[str]) -> dict[str, dict]:
     """_RawData_Master에서 impressions / ctr 취득. source = 'sheets'."""
     result = {vid: {"impressions": None, "ctr": None, "ctr_source": "missing"} for vid in video_ids}
@@ -193,13 +322,18 @@ def read_recent_csv_ctr(video_ids: list[str]) -> dict[str, dict]:
             reader = csv.DictReader(f)
             for row in reader:
                 normalized = {k.strip().lower(): v for k, v in row.items()}
-                vid = normalized.get("video id", "").strip()
+                # 한국어 CSV: "콘텐츠" 컬럼이 video_id
+                vid = (
+                    normalized.get("video id", "")
+                    or normalized.get("콘텐츠", "")
+                ).strip()
                 if vid not in result:
                     continue
 
                 imp_raw = normalized.get("impressions", "") or normalized.get("노출수", "")
                 ctr_raw = (
                     normalized.get("impressions ctr", "")
+                    or normalized.get("노출 클릭률 (%)", "")
                     or normalized.get("노출 클릭률", "")
                     or normalized.get("ctr", "")
                 )
@@ -349,9 +483,15 @@ def main():
         last_csv_str = vid_state.get("last_csv_at", "")
         csv_synced   = vid_state.get("csv_synced", False)
 
+        # CTR null이면 쿨다운 무시하고 강제 다운로드
+        if not csv_synced:
+            print(f"  {vid}: CTR 미수집 — 쿨다운 무시, 강제 CSV 다운로드")
+            needs_csv.append(vid)
+            continue
+
         if last_csv_str:
             try:
-                last_dt  = datetime.fromisoformat(last_csv_str)
+                last_dt   = datetime.fromisoformat(last_csv_str)
                 hours_ago = (now - last_dt).total_seconds() / 3600
                 if hours_ago < CSV_COOLDOWN_H:
                     print(f"  {vid}: CSV 쿨다운 중 ({hours_ago:.1f}h < {CSV_COOLDOWN_H}h) — 스킵")
@@ -380,11 +520,15 @@ def main():
 
     # ── 4. CTR 취득 ───────────────────────────────────────────────────────────
     print("\n[3/4] CTR 데이터 취득...")
-    if csv_ok and _RECENT_CSV.exists():
+    if _RECENT_CSV.exists():
         ctr_map = read_recent_csv_ctr(video_ids)
     else:
         print("  recent CSV 없음 — _RawData_Master 폴백")
         ctr_map = fetch_ctr_from_master(gc, video_ids)
+
+    # ── CSV CTR → _RawData_Master write-back ──────────────────────────────────
+    print("\n  [write-back] CSV CTR → _RawData_Master...")
+    dirty = writeback_ctr_to_master(gc, ctr_map)
 
     # csv_synced 확정: CSV 경로로 CTR 취득 성공한 경우
     for vid, d in ctr_map.items():
@@ -414,6 +558,14 @@ def main():
             f" | CTR={ctr_disp} ({item['ctr_source']})"
             f" | likes={item['likes']}"
         )
+
+    # ── dirty flag → diagnostics 조건부 재실행 ────────────────────────────────
+    # write-back으로 실제 셀 변경이 있었을 때만 실행 (불필요 연산 방지)
+    if dirty:
+        print("\n[post] impressions/CTR 갱신 감지 → diagnostics 재실행...")
+        run_video_diagnostics_engine()
+    else:
+        print("\n[post] 데이터 변경 없음 — diagnostics 스킵")
 
     print("\n" + "=" * 60)
     print("Active Upload Monitor v2.0 완료")

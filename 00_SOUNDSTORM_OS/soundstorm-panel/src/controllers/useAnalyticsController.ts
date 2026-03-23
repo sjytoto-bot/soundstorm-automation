@@ -35,6 +35,7 @@ import {
 import { fetchVideoDiagnostics, type VideoDiagnostic } from "@/adapters/VideoDiagnosticsAdapter";
 import { fetchThumbnailStyles,  type ThumbnailStyle  } from "@/adapters/ThumbnailStyleAdapter";
 import { fetchReferenceVideos,  type ReferenceVideo  } from "@/adapters/ReferenceVideosAdapter";
+import { fetchVideoTitleMap }                          from "@/adapters/VideoTitleMapAdapter";
 
 // ─── 타입 정의 ────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,8 @@ export function useAnalyticsController(): AnalyticsControllerResult {
   const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
   const [rawDiagnostics,  setDiagnostics] = useState<VideoDiagnostic[]>([]);
   const [thumbnailStyles, setStyles]      = useState<ThumbnailStyle[]>([]);
-  const [referenceVideos, setReferences]  = useState<ReferenceVideo[]>([]);
+  const [rawReferences,   setReferences]  = useState<ReferenceVideo[]>([]);
+  const [videoTitleMap,   setTitleMap]    = useState<Record<string, string>>({});
 
   // stale 응답 방지: 응답 도착 시점의 period와 요청 시점을 비교
   const periodRef = useRef<Period>(period);
@@ -144,6 +146,7 @@ export function useAnalyticsController(): AnalyticsControllerResult {
     fetchVideoDiagnostics().then(setDiagnostics).catch(() => {});
     fetchThumbnailStyles().then(setStyles).catch(() => {});
     fetchReferenceVideos().then(setReferences).catch(() => {});
+    fetchVideoTitleMap().then(setTitleMap).catch(() => {});
   }, []);
 
   // ── period 변경 시 Analytics 재로드 ──────────────────────────────────────
@@ -206,19 +209,40 @@ export function useAnalyticsController(): AnalyticsControllerResult {
   );
 
   // ── videoDiagnostics title 보강 ──────────────────────────────────────────
-  // Video_Diagnostics 시트에 title 컬럼이 없는 경우 analytics.hitVideos에서 보완.
-  // 모든 하위 패널이 공유하므로 context 레벨에서 한 번만 처리.
+  // 우선순위: d.title(시트) → hitVideos → videoTitleMap(_RawData_Master)
+  // getSafeTitle은 UI 계층에서 적용 — 여기선 원본 문자열만 보강.
   const videoDiagnostics = useMemo<VideoDiagnostic[]>(() => {
     if (!rawDiagnostics.length) return rawDiagnostics;
     const hitTitleMap = new Map<string, string>(
       (analytics?.hitVideos ?? []).map(h => [h.key, (h.title ?? "").trim()])
     );
     return rawDiagnostics.map(d => {
-      if (d.title) return d;  // 이미 title 있으면 그대로
-      const title = hitTitleMap.get(d.videoId) ?? "";
+      // videoId 형식이 아닌 실제 title이 있으면 그대로
+      if (d.title && !/^[a-zA-Z0-9_-]{11}$/.test(d.title)) return d;
+      const title =
+        hitTitleMap.get(d.videoId) ||
+        videoTitleMap[d.videoId]   ||
+        "";
       return title ? { ...d, title } : d;
     });
-  }, [rawDiagnostics, analytics?.hitVideos]);
+  }, [rawDiagnostics, analytics?.hitVideos, videoTitleMap]);
+
+  // ── referenceVideos title 보강 ────────────────────────────────────────────
+  // Reference_Videos 시트에 title 컬럼이 없을 수 있으므로 videoTitleMap으로 보완.
+  const referenceVideos = useMemo<ReferenceVideo[]>(() => {
+    if (!rawReferences.length) return rawReferences;
+    const hitTitleMap = new Map<string, string>(
+      (analytics?.hitVideos ?? []).map(h => [h.key, (h.title ?? "").trim()])
+    );
+    return rawReferences.map(v => {
+      if (v.title && !/^[a-zA-Z0-9_-]{11}$/.test(v.title)) return v;
+      const title =
+        hitTitleMap.get(v.videoId)  ||
+        videoTitleMap[v.videoId]    ||
+        "";
+      return title ? { ...v, title } : v;
+    });
+  }, [rawReferences, analytics?.hitVideos, videoTitleMap]);
 
   // ── CTR 분포 버킷 (videoDiagnostics 변경 시 재계산) ─────────────────────
   const ctrBuckets = useMemo<CtrBucket[]>(() => {

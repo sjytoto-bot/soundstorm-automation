@@ -1,0 +1,13 @@
+/* ─── ExecutionPanel Layout ───────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: 0.9fr 2.1fr;
+  gap: 16px; /* T.spacing.lg */
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

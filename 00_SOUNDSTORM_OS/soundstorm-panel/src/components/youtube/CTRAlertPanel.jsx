@@ -9,6 +9,7 @@
 
 import { AlertTriangle, TrendingDown, ExternalLink } from "lucide-react";
 import { T } from "../../styles/tokens";
+import { getSafeTitle } from "@/utils/videoTitle";
 
 // ─── 경보 기준 ────────────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ export default function CTRAlertPanel({ diagnostics }) {
           const ctrPct   = `${(d.ctr * 100).toFixed(2)}%`;
           const diagLabel = DIAGNOSIS_LABEL[d.diagnosis] ?? d.diagnosis;
           const isLast   = i === alerts.length - 1;
-          const videoTitle = d.title || d.videoId;
+          const videoTitle = getSafeTitle(d.trackName || d.title, d.videoId);
           const ytUrl    = `https://studio.youtube.com/video/${d.videoId}/edit`;
 
           return (

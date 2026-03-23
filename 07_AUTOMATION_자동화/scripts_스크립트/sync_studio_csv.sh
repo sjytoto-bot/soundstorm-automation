@@ -75,6 +75,7 @@ _start_cdp_chrome() {
   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
     --remote-debugging-port=9222 \
     --user-data-dir="$CDP_PROFILE" \
+    --disable-quic \
     --no-first-run \
     --no-default-browser-check \
     > /tmp/soundstorm_chrome.log 2>&1 &

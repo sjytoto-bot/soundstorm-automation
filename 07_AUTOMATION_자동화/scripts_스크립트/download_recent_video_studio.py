@@ -58,6 +58,9 @@ EXPORT_SELECTORS = [
     '[aria-label*="Export"]',
     'ytcp-icon-button[aria-label*="내보내기"]',
     'ytcp-icon-button[aria-label*="Export"]',
+    '[aria-label*="다운로드"]',
+    'ytcp-icon-button[aria-label*="다운로드"]',
+    '[title*="다운로드"]',
 ]
 
 # ── Google Sheets 연결 ────────────────────────────────────────────────────────
@@ -100,23 +103,11 @@ def _get_latest_video_id(gc) -> tuple[str, str]:
 # ── Studio URL 빌더 ───────────────────────────────────────────────────────────
 
 def _build_video_url(video_id: str) -> str:
-    """영상 분석 페이지 URL (게시 이후 기본값)"""
+    """영상 분석 개요 탭 URL (게시 이후) — 도달범위 탭보다 안정적으로 로드됨"""
     return (
         f'https://studio.youtube.com/video/{video_id}'
-        '/analytics/tab-content/period-default/explore'
-        '?entity_type=VIDEO'
-        f'&entity_id={video_id}'
-        '&time_period=since_publish'
-        '&explore_type=TABLE_AND_CHART'
-        '&metric=VIDEO_THUMBNAIL_IMPRESSIONS'
-        '&granularity=MONTH'
-        '&t_metrics=VIDEO_THUMBNAIL_IMPRESSIONS'
-        '&t_metrics=VIDEO_THUMBNAIL_IMPRESSIONS_VTR'
-        '&t_metrics=EXTERNAL_VIEWS'
-        '&t_metrics=EXTERNAL_WATCH_TIME'
-        '&dimension=MONTH'
-        '&o_column=VIDEO_THUMBNAIL_IMPRESSIONS'
-        '&o_direction=ANALYTICS_ORDER_DIRECTION_DESC'
+        '/analytics/tab-overview/period-default'
+        '?time_period=since_publish'
     )
 
 
@@ -310,72 +301,144 @@ def main():
             page.screenshot(path=str(EXPORTS_DIR / 'debug_recent_video.png'))
             sys.exit(1)
 
-        print("[3] Export 버튼 대기 (최대 90초)...")
-        ok = _wait_for_export_button(page, timeout_sec=90)
-        if not ok:
-            page.screenshot(path=str(EXPORTS_DIR / 'debug_recent_video.png'))
-            print("❌ Export 버튼 없음 (스크린샷 저장됨)")
-            browser.close()
-            sys.exit(1)
+        print("[3] 개요 탭 로드 대기 (최대 30초)...")
+        page.wait_for_timeout(8000)
 
-        export_btn = _find_export_button(page)
-
-        print("[4] 다운로드 시작...")
-        zip_path = None
+        # 도달범위 탭 클릭 (노출수/CTR이 있는 탭)
+        print("[3-B] 도달범위 탭 클릭...")
         try:
-            with page.expect_download(timeout=60000) as dl_info:
-                export_btn.click()
-                page.wait_for_timeout(1500)
-
-                csv_item = page.locator('tp-yt-paper-item[test-id="CSV"]').first
-                if csv_item.is_visible(timeout=5000):
-                    csv_item.click()
-                    print("  CSV 옵션 클릭")
-                else:
-                    for txt in ['쉼표로 구분된 값(.csv)', 'CSV']:
-                        try:
-                            page.get_by_text(txt, exact=False).first.click()
-                            print(f"  CSV 옵션 클릭 (텍스트: '{txt}')")
-                            break
-                        except Exception:
-                            pass
-
-            download = dl_info.value
-            zip_path = str(EXPORTS_DIR / os.path.basename(download.suggested_filename))
-            download.save_as(zip_path)
-            print(f"  ✅ ZIP 저장: {os.path.basename(zip_path)} ({os.path.getsize(zip_path)//1024} KB)")
-
+            reach_tab = page.get_by_text("도달범위", exact=True).first
+            reach_tab.wait_for(state="visible", timeout=15000)
+            reach_tab.click()
+            page.wait_for_timeout(8000)
+            print("  ✅ 도달범위 탭 이동")
         except Exception as e:
-            print(f"❌ 다운로드 실패: {e}")
-            browser.close()
-            sys.exit(1)
+            print(f"  ⚠️ 도달범위 탭 클릭 실패: {e}")
+
+        # 오류 시 재시도 버튼 클릭 (1회)
+        retry_btns = page.get_by_text("재시도").all()
+        if retry_btns:
+            print(f"  재시도 버튼 {len(retry_btns)}개 클릭 중...")
+            for btn in retry_btns:
+                try:
+                    if btn.is_visible():
+                        btn.click()
+                except Exception:
+                    pass
+            page.wait_for_timeout(5000)
+
+        # [방법 A] DOM에서 직접 노출수/CTR 추출 (CSV 다운로드 불필요)
+        print("[4-A] DOM에서 노출수/CTR 직접 추출...")
+        dom_stats = page.evaluate("""() => {
+            // 한국어 수 표기 변환 (1.4천 → 1400, 2.1만 → 21000)
+            function parseKorNum(s) {
+                s = s.trim();
+                if (s.includes('천')) return Math.round(parseFloat(s.replace('천', '')) * 1000);
+                if (s.includes('만')) return Math.round(parseFloat(s.replace('만', '')) * 10000);
+                return parseInt(s.replace(/,/g, ''), 10) || 0;
+            }
+
+            // 모든 텍스트 노드 수집
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+            const texts = [];
+            let node;
+            while ((node = walker.nextNode())) {
+                const t = node.textContent.trim();
+                if (t) texts.push(t);
+            }
+
+            let impressions = 0;
+            let ctr = 0.0;
+
+            for (let i = 0; i < texts.length; i++) {
+                const t = texts[i];
+                const ctx = texts.slice(Math.max(0, i-4), i+4).join(' ');
+
+                // 노출수: 숫자 + 단위(천/만) 또는 콤마 정수
+                if (impressions === 0 && /^[0-9]+\\.?[0-9]*[천만]?$/.test(t) && t !== '0') {
+                    if (ctx.includes('노출수') || ctx.includes('Impression')) {
+                        const n = parseKorNum(t);
+                        if (n >= 100) impressions = n;
+                    }
+                }
+
+                // CTR: x.x% 형태 + 클릭률/CTR 컨텍스트
+                if (ctr === 0.0) {
+                    const m = t.match(/^([0-9]+\\.?[0-9]*)%$/);
+                    if (m) {
+                        const val = parseFloat(m[1]);
+                        if (val > 0 && val <= 100 && (ctx.includes('클릭') || ctx.includes('CTR'))) {
+                            ctr = val / 100.0;
+                        }
+                    }
+                }
+            }
+
+            return { impressions, ctr };
+        }""")
+
+        print(f"  DOM 추출: impressions={dom_stats.get('impressions', 0):,}  ctr={dom_stats.get('ctr', 0):.4f}")
+
+        # [방법 B] DOM 추출 실패 시 — Export 버튼 클릭 후 CSV 다운로드
+        zip_path = None
+        if dom_stats.get('impressions', 0) == 0:
+            print("[4-B] DOM 추출 실패 → Export 버튼 CSV 다운로드 시도...")
+            export_btn = _find_export_button(page)
+            if export_btn:
+                try:
+                    with page.expect_download(timeout=60000) as dl_info:
+                        export_btn.click()
+                        page.wait_for_timeout(1500)
+                        csv_item = page.locator('tp-yt-paper-item[test-id="CSV"]').first
+                        if csv_item.is_visible(timeout=5000):
+                            csv_item.click()
+                        else:
+                            for txt in ['쉼표로 구분된 값(.csv)', 'CSV']:
+                                try:
+                                    page.get_by_text(txt, exact=False).first.click()
+                                    break
+                                except Exception:
+                                    pass
+                    download = dl_info.value
+                    zip_path = str(EXPORTS_DIR / os.path.basename(download.suggested_filename))
+                    download.save_as(zip_path)
+                    print(f"  ✅ ZIP 저장: {os.path.basename(zip_path)}")
+                except Exception as e:
+                    print(f"  ⚠️ CSV 다운로드도 실패: {e}")
+            else:
+                page.screenshot(path=str(EXPORTS_DIR / 'debug_recent_video.png'))
+                print("  ⚠️ Export 버튼 없음 (스크린샷 저장됨)")
 
         browser.close()
 
-    # 5. ZIP 압축 해제
-    print(f"\n[5] ZIP 압축 해제...")
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        members = zf.namelist()
-        print(f"  내용: {members}")
-        zf.extractall(str(EXPORTS_DIR))
-
-    table_csv = str(EXPORTS_DIR / '표 데이터.csv')
-    if not os.path.exists(table_csv):
-        candidates = sorted(
-            [c for c in _glob.glob(str(EXPORTS_DIR / '*.csv'))
-             if 'studio_reach_report' not in c],
-            key=os.path.getsize, reverse=True
-        )
-        if not candidates:
-            print("❌ 추출된 CSV 없음")
-            sys.exit(1)
-        table_csv = candidates[0]
-        print(f"  폴백 CSV: {os.path.basename(table_csv)}")
-
-    # 6. CSV 파싱 + 집계
-    print(f"\n[6] CSV 파싱: {os.path.basename(table_csv)}")
-    stats = _parse_csv(table_csv)
-    print(f"  impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}  views={stats['views']:,}")
+    # 5. stats 결정 (DOM 우선, CSV 폴백)
+    if dom_stats.get('impressions', 0) > 0:
+        stats = {
+            'impressions': dom_stats['impressions'],
+            'ctr':         round(dom_stats['ctr'], 6),
+            'views':       0,
+        }
+        print(f"\n[5] DOM 추출 데이터 사용: impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}")
+    elif zip_path and os.path.exists(zip_path):
+        print(f"\n[5] ZIP 압축 해제: {os.path.basename(zip_path)}")
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            print(f"  내용: {zf.namelist()}")
+            zf.extractall(str(EXPORTS_DIR))
+        table_csv = str(EXPORTS_DIR / '표 데이터.csv')
+        if not os.path.exists(table_csv):
+            candidates = sorted(
+                [c for c in _glob.glob(str(EXPORTS_DIR / '*.csv'))
+                 if 'studio_reach_report' not in c],
+                key=os.path.getsize, reverse=True
+            )
+            if candidates:
+                table_csv = candidates[0]
+        print(f"  CSV 파싱: {os.path.basename(table_csv)}")
+        stats = _parse_csv(table_csv)
+        print(f"  impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}")
+    else:
+        print("❌ 데이터 추출 실패 (DOM 파싱 + CSV 다운로드 모두 실패)")
+        sys.exit(1)
 
     if stats['impressions'] == 0:
         print("  ⚠️ impressions=0 — 데이터 없음 또는 파싱 오류. Sheets 업데이트 스킵.")

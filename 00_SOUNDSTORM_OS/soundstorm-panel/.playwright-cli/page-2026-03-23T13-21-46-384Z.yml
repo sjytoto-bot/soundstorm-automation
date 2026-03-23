@@ -1,0 +1,385 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - button "사이드바 접기" [ref=e6] [cursor=pointer]:
+        - img [ref=e7]
+      - generic [ref=e10]: Dashboard
+      - generic [ref=e14]: 0%
+    - generic [ref=e15]:
+      - complementary [ref=e16]:
+        - navigation [ref=e17]:
+          - button "대시보드" [ref=e19] [cursor=pointer]:
+            - img [ref=e21]
+            - generic [ref=e26]: 대시보드
+          - button "OS 로드맵" [ref=e28] [cursor=pointer]:
+            - img [ref=e30]
+            - generic [ref=e32]: OS 로드맵
+          - button "네이버스토어" [ref=e34] [cursor=pointer]:
+            - img [ref=e36]
+            - generic [ref=e39]: 네이버스토어
+          - button "음원 마스터" [ref=e41] [cursor=pointer]:
+            - img [ref=e43]
+            - generic [ref=e47]: 음원 마스터
+      - generic [ref=e48]:
+        - main [ref=e49]:
+          - generic [ref=e51]:
+            - generic [ref=e53]:
+              - img [ref=e54]
+              - generic [ref=e56]:
+                - generic [ref=e57]:
+                  - generic [ref=e58]: NO_UPLOAD_THIS_WEEK
+                  - generic [ref=e59]: upload_date 컬럼 없음
+                - generic [ref=e60]: → _RawData_Master upload_date 컬럼 확인
+            - generic [ref=e61]:
+              - generic [ref=e62]:
+                - generic [ref=e63]:
+                  - generic [ref=e64]:
+                    - generic [ref=e65]:
+                      - generic [ref=e66]: Last updated 22:21
+                      - button "데이터 새로고침" [ref=e67] [cursor=pointer]:
+                        - img [ref=e68]
+                    - generic [ref=e73]:
+                      - generic [ref=e74]:
+                        - generic [ref=e75]: 🟡
+                        - generic [ref=e76]: API 싱크 확인 중
+                      - generic [ref=e77]:
+                        - generic [ref=e78]: ·
+                        - generic [ref=e79]: 🔴
+                        - generic [ref=e80]: 시트 싱크 실패
+                      - generic [ref=e81]:
+                        - generic [ref=e82]: ·
+                        - generic [ref=e83]: 🟡
+                        - generic [ref=e84]: 스튜디오 싱크 확인 중
+                  - generic [ref=e85]:
+                    - button "7일" [ref=e86] [cursor=pointer]
+                    - button "30일" [ref=e87] [cursor=pointer]
+                    - button "전체" [ref=e88] [cursor=pointer]
+                - generic [ref=e90]:
+                  - generic [ref=e91]: CHANNEL HEALTH
+                  - generic [ref=e94]: —
+                  - generic [ref=e95]: 데이터 부족
+                  - generic [ref=e96]: — 데이터 부족
+                  - generic [ref=e97]: 보합
+              - generic [ref=e98]:
+                - generic [ref=e100]: KPI
+                - generic [ref=e102]:
+                  - generic [ref=e105]:
+                    - generic [ref=e107]: 조회수
+                    - generic [ref=e109]: —
+                    - generic [ref=e110]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e113]:
+                    - generic [ref=e115]: 구독자
+                    - generic [ref=e117]: —
+                    - generic [ref=e118]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e121]:
+                    - generic [ref=e123]: 시청시간
+                    - generic [ref=e125]: —
+                    - generic [ref=e126]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e129]:
+                    - generic [ref=e131]: 클릭률
+                    - generic [ref=e133]: —
+                    - generic [ref=e134]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e137]:
+                    - generic [ref=e139]: 평균시청
+                    - generic [ref=e141]: —
+                    - generic [ref=e142]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e145]:
+                    - generic [ref=e147]: 좋아요
+                    - generic [ref=e149]: —
+                    - generic [ref=e150]: 최근 추세 기준 운영 판단 지표
+                  - generic [ref=e153]:
+                    - generic [ref=e155]: 예상수익
+                    - generic [ref=e157]: —
+                    - generic [ref=e158]: 최근 추세 기준 운영 판단 지표
+            - status [ref=e159]
+            - generic [ref=e161]:
+              - generic [ref=e162]: Last updated · 22:21
+              - button "새로고침" [ref=e163] [cursor=pointer]
+            - generic [ref=e164]:
+              - generic [ref=e166]: CONTENT EXECUTION
+              - generic [ref=e168]:
+                - generic [ref=e169]:
+                  - generic [ref=e170]:
+                    - generic [ref=e171]: 콘텐츠 실행
+                    - generic [ref=e175]: —
+                  - generic [ref=e177]:
+                    - generic [ref=e178]: 업로드 성과
+                    - generic [ref=e179]: 최근 30일 업로드 없음
+                - generic [ref=e181]:
+                  - generic [ref=e182]:
+                    - img [ref=e183]
+                    - generic [ref=e186]: 다음 업로드 추천
+                    - generic [ref=e187]: 신뢰도 55%
+                  - generic [ref=e188]:
+                    - generic [ref=e189]:
+                      - generic [ref=e190]:
+                        - generic [ref=e191]: PRIMARY SLOT
+                        - generic [ref=e192]: 월 (3/23)
+                        - generic [ref=e193]: 22:00
+                      - generic [ref=e195]: 2일 리듬 기준 추천
+                    - generic [ref=e196]:
+                      - generic [ref=e198]: 휴리스틱 추정
+                      - generic [ref=e199]: 업로드 시간 데이터 없음 — KR 음악 채널 패턴 기반 추정 (정확도 제한)
+                      - generic [ref=e200]:
+                        - generic [ref=e201]: 신뢰도
+                        - generic [ref=e202]: 55%
+                  - generic [ref=e204]:
+                    - generic [ref=e205]: RHYTHM STATUS
+                    - generic [ref=e206]:
+                      - generic [ref=e207]: 주3회 목표
+                      - generic [ref=e208]: 0/3
+                    - generic [ref=e209]: 리듬 정상 유지
+                  - generic [ref=e210]:
+                    - generic [ref=e211]: 대안
+                    - button "1 월 (3/23) 22:00 ← 추천" [ref=e212] [cursor=pointer]:
+                      - generic [ref=e213]: "1"
+                      - generic [ref=e214]: 월 (3/23) 22:00
+                      - generic [ref=e215]: ← 추천
+                    - button "2 금 (3/27) 19:00 최고 성과 · 리듬 붕괴 (+3일)" [ref=e216] [cursor=pointer]:
+                      - generic [ref=e217]: "2"
+                      - generic [ref=e218]: 금 (3/27) 19:00
+                      - generic [ref=e219]: 최고 성과 · 리듬 붕괴 (+3일)
+                  - generic [ref=e220]:
+                    - generic [ref=e222]:
+                      - generic [ref=e223]: 월
+                      - generic [ref=e226]: 22:00
+                    - generic [ref=e228]:
+                      - generic [ref=e229]: 화
+                      - generic [ref=e232]: 21:00
+                    - generic [ref=e234]:
+                      - generic [ref=e235]: 수
+                      - generic [ref=e238]: 21:00
+                    - generic [ref=e240]:
+                      - generic [ref=e241]: 목
+                      - generic [ref=e244]: 20:00
+                    - generic [ref=e246]:
+                      - generic [ref=e247]: 금
+                      - generic [ref=e250]: 19:00
+                    - generic [ref=e252]:
+                      - generic [ref=e253]: 토
+                      - generic [ref=e256]: 16:00
+                    - generic [ref=e258]:
+                      - generic [ref=e259]: 일
+                      - generic [ref=e262]: 17:00
+              - generic [ref=e263]:
+                - generic [ref=e264]:
+                  - generic [ref=e265]: 콘텐츠 팩 관리
+                  - generic [ref=e266]:
+                    - button "Suno Prompt" [ref=e267] [cursor=pointer]:
+                      - img [ref=e268]
+                      - text: Suno Prompt
+                    - button "썸네일 생성" [ref=e271] [cursor=pointer]:
+                      - img [ref=e272]
+                      - text: 썸네일 생성
+                    - button "새 팩" [ref=e276] [cursor=pointer]:
+                      - img [ref=e277]
+                      - text: 새 팩
+                - generic [ref=e278]:
+                  - button "전체" [ref=e279] [cursor=pointer]
+                  - button "아이디어" [ref=e280] [cursor=pointer]
+                  - button "작업중" [ref=e281] [cursor=pointer]
+                  - button "자동화 완료" [ref=e282] [cursor=pointer]
+                  - button "업로드 완료" [ref=e283] [cursor=pointer]
+                  - button "성과 수집중" [ref=e284] [cursor=pointer]
+                - generic [ref=e285]:
+                  - img [ref=e286]
+                  - generic [ref=e290]:
+                    - generic [ref=e291]: 콘텐츠 팩이 없습니다
+                    - generic [ref=e292]: 테마를 입력하고 자동화 도구로 콘텐츠를 생성하세요
+                  - button "첫 번째 팩 만들기" [ref=e293] [cursor=pointer]:
+                    - img [ref=e294]
+                    - text: 첫 번째 팩 만들기
+              - generic [ref=e295]:
+                - generic [ref=e296]:
+                  - generic [ref=e297]:
+                    - generic [ref=e298]: PHASE 2
+                    - generic [ref=e299]: Thumbnail Studio
+                  - button [ref=e300] [cursor=pointer]:
+                    - img [ref=e301]
+                - generic [ref=e304]:
+                  - generic [ref=e305]:
+                    - generic [ref=e306]:
+                      - img [ref=e307]
+                      - generic [ref=e309]: CONTENT THEME
+                    - 'textbox "예: Samurai Battle, Dark Assassin, Royal Procession" [ref=e310]'
+                  - generic [ref=e313]:
+                    - img [ref=e314]
+                    - generic [ref=e320]: STYLE INTELLIGENCE
+                  - generic [ref=e321]:
+                    - generic [ref=e322]:
+                      - img [ref=e323]
+                      - generic [ref=e326]: MIDJOURNEY PROMPT
+                    - generic [ref=e327]: 테마를 입력하면 프롬프트가 생성됩니다
+                  - generic [ref=e328]:
+                    - generic [ref=e330]:
+                      - img [ref=e331]
+                      - generic [ref=e333]: RECOMMENDED COPY
+                    - generic [ref=e334]: 테마를 입력하면 카피 옵션이 생성됩니다
+                  - generic [ref=e335]:
+                    - generic [ref=e336]:
+                      - img [ref=e337]
+                      - generic [ref=e340]: BACKGROUND IMAGE
+                    - generic [ref=e341] [cursor=pointer]:
+                      - img [ref=e342]
+                      - generic [ref=e345]: Drop Midjourney Image Here
+                      - generic [ref=e346]: 또는 클릭하여 파일 선택 · JPG, PNG
+                  - generic [ref=e347]:
+                    - generic [ref=e348]:
+                      - img [ref=e349]
+                      - generic [ref=e351]: TEMPLATE
+                    - generic [ref=e352]:
+                      - button "Default 흰색 · 검정 stroke" [ref=e353] [cursor=pointer]:
+                        - generic [ref=e354]: Default
+                        - generic [ref=e355]: 흰색 · 검정 stroke
+                      - button "Battle 흰색 · 붉은 stroke" [ref=e356] [cursor=pointer]:
+                        - generic [ref=e357]: Battle
+                        - generic [ref=e358]: 흰색 · 붉은 stroke
+                      - button "Assassin 회색 · 검정 stroke" [ref=e359] [cursor=pointer]:
+                        - generic [ref=e360]: Assassin
+                        - generic [ref=e361]: 회색 · 검정 stroke
+                      - button "Oriental 금색 · 암갈색 stroke" [ref=e362] [cursor=pointer]:
+                        - generic [ref=e363]: Oriental
+                        - generic [ref=e364]: 금색 · 암갈색 stroke
+                      - button "Minimal 흰색 · 옅은 stroke" [ref=e365] [cursor=pointer]:
+                        - generic [ref=e366]: Minimal
+                        - generic [ref=e367]: 흰색 · 옅은 stroke
+                    - generic [ref=e368]:
+                      - generic [ref=e369]: TEXT POSITION
+                      - generic [ref=e370]:
+                        - button "AI 추천 위치" [ref=e371] [cursor=pointer]
+                        - button "수동 위치" [ref=e372] [cursor=pointer]
+                      - generic [ref=e373]: Generate 시 이미지 분석 후 자동 결정
+                  - generic [ref=e376]:
+                    - button "Generate Thumbnail" [disabled] [ref=e377]:
+                      - img [ref=e378]
+                      - text: Generate Thumbnail
+                    - generic [ref=e381]: 테마 입력 → Generate
+                  - generic [ref=e382]:
+                    - generic [ref=e384]:
+                      - img [ref=e385]
+                      - generic [ref=e386]: A/B TEST
+                    - button "Create A/B Test" [disabled] [ref=e387]:
+                      - img [ref=e388]
+                      - text: Create A/B Test
+                    - generic [ref=e389]: 테마 입력 → Create A/B Test
+            - generic [ref=e394]:
+              - generic [ref=e395]:
+                - generic [ref=e396]:
+                  - img [ref=e397]
+                  - generic [ref=e400]: 크리에이터 성장 루프
+                - generic [ref=e402]: 팩 없음
+              - generic [ref=e403]:
+                - img [ref=e405]
+                - generic [ref=e408]:
+                  - generic [ref=e409]: 콘텐츠 팩을 생성하면
+                  - generic [ref=e410]: 크리에이터 성장 루프가 시작됩니다
+                  - generic [ref=e411]: 테마 → 자동화 → 업로드 → 성과 분석 → 다음 기회
+                - button "첫 콘텐츠 팩 만들기" [ref=e412] [cursor=pointer]:
+                  - img [ref=e413]
+                  - text: 첫 콘텐츠 팩 만들기
+            - generic [ref=e417]: CONTENT STRATEGY
+            - generic [ref=e423]:
+              - generic [ref=e424]: THUMBNAILANALYZER
+              - generic [ref=e425]: 구현 예정 — Engine 연결 후 여기서 표시
+        - generic [ref=e427]:
+          - generic [ref=e428]:
+            - generic [ref=e429]:
+              - generic [ref=e430]: SECONDARY INSPECTOR
+              - generic [ref=e431]: Right Panel
+            - button "패널 닫기" [ref=e432] [cursor=pointer]:
+              - img [ref=e433]
+          - generic [ref=e435]:
+            - generic [ref=e437]:
+              - button "블록 관리" [ref=e438] [cursor=pointer]:
+                - img [ref=e440]
+                - generic [ref=e445]: 블록 관리
+                - img [ref=e446]
+              - generic [ref=e449]:
+                - generic [ref=e450]: 드래그해서 대시보드에 배치
+                - generic [ref=e451]:
+                  - generic [ref=e452]:
+                    - button [ref=e453]:
+                      - img [ref=e454]
+                    - img [ref=e462]
+                    - generic [ref=e463]:
+                      - generic [ref=e464]:
+                        - generic [ref=e465]: Channel Insight
+                        - button "ON" [ref=e466] [cursor=pointer]:
+                          - generic [ref=e468]: "ON"
+                      - generic [ref=e469]: 채널 KPI 실시간 연동 중
+                  - generic [ref=e470]:
+                    - button [ref=e471]:
+                      - img [ref=e472]
+                    - img [ref=e480]
+                    - generic [ref=e483]:
+                      - generic [ref=e484]:
+                        - generic [ref=e485]: Content Execution
+                        - button "ON" [ref=e486] [cursor=pointer]:
+                          - generic [ref=e488]: "ON"
+                      - generic [ref=e489]: 실행 모니터링 중
+                  - generic [ref=e490]:
+                    - button [ref=e491]:
+                      - img [ref=e492]
+                    - img [ref=e500]
+                    - generic [ref=e503]:
+                      - generic [ref=e504]:
+                        - generic [ref=e505]: Upload Assistant
+                        - button "ON" [ref=e506] [cursor=pointer]:
+                          - generic [ref=e508]: "ON"
+                      - generic [ref=e509]: 업로드 흐름 안내 중
+                  - generic [ref=e510]:
+                    - button [ref=e511]:
+                      - img [ref=e512]
+                    - img [ref=e520]
+                    - generic [ref=e523]:
+                      - generic [ref=e524]:
+                        - generic [ref=e525]: Growth Loop
+                        - button "ON" [ref=e526] [cursor=pointer]:
+                          - generic [ref=e528]: "ON"
+                      - generic [ref=e529]: 채널 성장 루프 모니터링 중
+                  - generic [ref=e530]:
+                    - button [ref=e531]:
+                      - img [ref=e532]
+                    - img [ref=e540]
+                    - generic [ref=e544]:
+                      - generic [ref=e545]:
+                        - generic [ref=e546]: Content Strategy
+                        - button "ON" [ref=e547] [cursor=pointer]:
+                          - generic [ref=e549]: "ON"
+                      - generic [ref=e550]: 오늘 전략 브리핑 연결됨
+                  - generic [ref=e551]:
+                    - button [ref=e552]:
+                      - img [ref=e553]
+                    - img [ref=e561]
+                    - generic [ref=e565]:
+                      - generic [ref=e566]:
+                        - generic [ref=e567]: ThumbnailAnalyzer
+                        - button "ON" [ref=e568] [cursor=pointer]:
+                          - generic [ref=e570]: "ON"
+                      - generic [ref=e571]: 썸네일 분석 실행됨
+            - button "콘텐츠 전략" [ref=e574] [cursor=pointer]:
+              - img [ref=e576]
+              - generic [ref=e578]: 콘텐츠 전략
+              - img [ref=e579]
+            - button "시청자 분석" [ref=e583] [cursor=pointer]:
+              - img [ref=e585]
+              - generic [ref=e586]: 시청자 분석
+              - img [ref=e587]
+            - button "인기 영상" [ref=e591] [cursor=pointer]:
+              - img [ref=e593]
+              - generic [ref=e596]: 인기 영상
+              - img [ref=e597]
+            - button "기회 영상" [ref=e601] [cursor=pointer]:
+              - img [ref=e603]
+              - generic [ref=e607]: 기회 영상
+              - img [ref=e608]
+            - button "시청유지율" [ref=e612] [cursor=pointer]:
+              - img [ref=e614]
+              - generic [ref=e618]: 시청유지율
+              - img [ref=e619]
+            - button "외부 유입" [ref=e623] [cursor=pointer]:
+              - img [ref=e625]
+              - generic [ref=e628]: 외부 유입
+              - img [ref=e629]
+  - region "Notifications alt+T"
+  - status [ref=e631]
