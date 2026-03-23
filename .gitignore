@@ -40,3 +40,15 @@ __pycache__/
 *.zip
 *.tar
 *.tar.gz
+
+# Logs (auto-generated, do not track)
+**/logs/*.log
+**/logs/*.out
+scripts_스크립트/logs/
+07_AUTOMATION_자동화/03_RUNTIME/logs/
+04_STORE_스토어/logs/
+
+# Runtime / temp
+.playwright-cli/
+*.png
+output/
