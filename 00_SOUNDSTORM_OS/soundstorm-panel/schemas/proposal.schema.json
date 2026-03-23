@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "soundstorm://schemas/proposal.schema.json",
+  "title": "SOUNDSTORM OS — AI Action Proposal",
+  "description": "Standard JSON schema for AI-generated proposals. AI agents produce proposals only; the OS executes them.",
+  "type": "object",
+  "required": [
+    "proposal_id",
+    "agent_id",
+    "timestamp",
+    "mode",
+    "risk_level",
+    "actions",
+    "explanation",
+    "confidence_score"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "proposal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique identifier for this proposal (UUID v4)"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the AI agent submitting the proposal"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp (e.g. 2026-02-23T09:00:00.000Z)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["supervised", "semi-auto", "auto"],
+      "description": "Execution mode — determines the level of human approval required"
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Risk classification of the proposed actions"
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of atomic actions to be executed by the OS",
+      "items": {
+        "$ref": "#/definitions/action"
+      }
+    },
+    "explanation": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable rationale for the proposal"
+    },
+    "confidence_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Agent confidence in this proposal, between 0.0 (none) and 1.0 (certain)"
+    }
+  },
+  "definitions": {
+    "action": {
+      "type": "object",
+      "required": ["action_id", "type", "path", "new_value", "reversible"],
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this individual action"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["create", "update", "delete"],
+          "description": "Action type"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JSONPath expression targeting the data location (e.g. $.stages[0].subtracks[2].status)"
+        },
+        "old_value": {
+          "description": "Previous value for audit/rollback purposes (optional)"
+        },
+        "new_value": {
+          "description": "Value to set. Use null for delete actions."
+        },
+        "reversible": {
+          "type": "boolean",
+          "description": "Whether this action can be safely rolled back"
+        }
+      }
+    }
+  }
+}

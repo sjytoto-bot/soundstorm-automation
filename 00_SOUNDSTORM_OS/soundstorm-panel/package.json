@@ -1,0 +1,78 @@
+{
+  "name": "soundstorm-panel",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint src/components/layout/Topbar.jsx src/components/layout/Sidebar.jsx",
+    "lint:full": "eslint .",
+    "preview": "vite preview",
+    "clean:ports": "lsof -ti:5173,5174,5175,5176,5177,5178,5179 2>/dev/null | xargs kill -9 2>/dev/null || true; pkill -f 'soundstorm-panel.*Electron.app' 2>/dev/null || true; sleep 1",
+    "electron:dev": "npm run clean:ports && concurrently \"vite\" \"electron .\"",
+    "electron:start": "electron .",
+    "build:app": "vite build",
+    "dist": "npm run build:app && electron-builder",
+    "test": "vitest run",
+    "create:block": "node scripts/create-block.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "googleapis": "^171.4.0",
+    "js-yaml": "^4.1.1",
+    "lucide-react": "^0.575.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-grid-layout": "^2.2.2",
+    "recharts": "^3.8.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-grid-layout": "^1.3.6",
+    "@vitejs/plugin-react": "^5.1.1",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^40.6.0",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "shadcn": "^3.8.5",
+    "tailwindcss": "^4.2.1",
+    "tsx": "^4.19.4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  },
+  "build": {
+    "appId": "com.soundstorm.os",
+    "productName": "SOUNDSTORM OS",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ]
+  }
+}

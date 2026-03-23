@@ -1,0 +1,8 @@
+[
+  { "id": "room_master",   "name": "운영팀_마스터컨트롤" },
+  { "id": "room_dev",      "name": "운영팀_개발" },
+  { "id": "room_data",     "name": "운영팀_데이터구축" },
+  { "id": "room_finance",  "name": "운영팀_재무세무" },
+  { "id": "room_naver",    "name": "네이버스토어팀" },
+  { "id": "room_strategy", "name": "전략팀_데이터분석" }
+]

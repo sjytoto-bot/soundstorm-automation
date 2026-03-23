@@ -216,7 +216,7 @@ Block 안에서 fetch·계산·상태 생성 금지.
 | **1** | 외부 유입 마지막 드릴다운 연결 | 🔴 P0 | ✅ 완료 | 외부 인사이트/캠페인/커뮤니티 row → `VideoDetailModal` |
 | **2** | `RightSidePanel.tsx` 구조 분해 | 🔴 P0 | ✅ 완료 — `external` / `kpi inspector` / `top videos` / `retention` 분리, 747줄까지 축소 | section 파일 분리 + 단일 패널 책임 축소 |
 | **3** | `computeChannelHealth()` 엔진 분리 + 산식 문서화 | 🔴 P0 | ✅ 완료 — `src/engine/channelHealthEngine.js`로 분리, 4-pillar 산식 독립 | 별도 score engine + 규격 문서 |
-| **4** | 남은 드릴다운 진입점 전수 통일 | 🔴 P0 | 진행 중 — 핵심 화면은 `VideoDetailModal` 종착, 일부 레거시/context 통일 남음 | 모든 영상 진입점의 종착지 `VideoDetailModal` |
+| **4** | 남은 드릴다운 진입점 전수 통일 | 🔴 P0 | 진행 중 — `DashboardGrid`의 `TopVideos / TrendingVideos`도 `handleVideoIdClick` 경로로 통일, 일부 레거시/context 정리 남음 | 모든 영상 진입점의 종착지 `VideoDetailModal` |
 | **5** | PHASE 10-C/D Electron OS 알림 | 🟡 P1 | 진행 중 — `critical` / `external drop` OS 알림 브릿지 연결 완료 | `main.js` IPC + 알림 트리거 |
 | **6** | PHASE 10-F EXTERNAL_DROP 자동 리포트 | 🟡 P1 | 외부 급감 탐지는 됨, 후속 리포트 자동화 없음 | Redirect 리포트 생성 + task/alert 연결 |
 | **7** | Discord Bot Command Layer | 🟡 P1 | Watchdog는 동작, 명령형 제어 없음 | `/watchdog scan/apply/rollback/status` |

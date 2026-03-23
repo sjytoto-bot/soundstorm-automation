@@ -1,0 +1,85 @@
+[
+  {
+    "id": 0, "label": "0단계", "title": "기준 확정",
+    "subtracks": [
+      { "id": "0-1", "name": "전체 폴더 구조 확정", "status": "completed", "room_ids": ["room_master"], "last": "ALBUM_V01_RELEASE 구조 확정", "next": null },
+      { "id": "0-2", "name": "SS 트랙 ID 체계 확정", "status": "completed", "room_ids": ["room_master"], "last": "SS001 형식 고정, 기존 파일 일괄 리네임 완료", "next": null },
+      { "id": "0-3", "name": "파일명·메타데이터 규칙 확정", "status": "completed", "room_ids": ["room_master"], "last": "메타데이터 자동 생성 여부 결정 완료", "next": null },
+      { "id": "0-4", "name": "BRAND STANDARD v1 확정", "status": "completed", "room_ids": ["room_master"], "last": "아티스트명·레이블명·DistroKid 설정 고정", "next": null }
+    ]
+  },
+  {
+    "id": 1, "label": "1단계", "title": "시스템 안정화",
+    "subtracks": [
+      {
+        "id": "1-1", "name": "OS 독립화 / 팀가이드 종속 제거", "status": "completed",
+        "room_ids": ["room_master"],
+        "last": "AI_OS v3.7 Strict Merge Scope 완료. 고정 버전 참조 전부 제거.",
+        "next": null,
+        "desc": "OS와 팀가이드 간 고정 버전 종속성 제거. 모든 팀가이드가 최신 OS 자동 준수 구조로 전환 완료. MULTI_AI_GOVERNANCE v1.5 역할 고정."
+      },
+      {
+        "id": "1-2", "name": "Snapshot 자동화 검증", "status": "in-progress",
+        "room_ids": ["room_dev"],
+        "last": "snapshot_engine.py Draft 구조 점검 단계. SNAPSHOT_START/END 마커 검증 포함.",
+        "next": "SNAPSHOT_DRAFT → approve 실행 → ARCHIVE 백업 → Obsidian 파일 교체 흐름 전체 테스트",
+        "desc": "SNAPSHOT_DRAFT::팀명 트리거 → SNAPSHOT_APPROVE::팀명 승인 구조. Version +0.1 자동 증가. Timestamp 갱신. Change Log 기록. Drive 백업."
+      },
+      {
+        "id": "1-3", "name": "폴더 구조 재정렬", "status": "in-progress",
+        "room_ids": ["room_data"],
+        "last": "07_AUTOMATION 구조 단순화 실행 단계 진입.",
+        "next": "엔진 파일 식별 → 폴더 재정렬 → output/JSON/XLSX 통합 → 구버전 analyzer archive 이동",
+        "desc": "engine / scripts / data / docs 4폴더 구조 고정. TEAM_GUIDES 단일 경로 원칙. 자동화 폴더 내 OS 문서 보관 금지."
+      },
+      {
+        "id": "1-4", "name": "YouTube 데이터 수집 안정화", "status": "in-progress",
+        "room_ids": ["room_data"],
+        "last": "YouTube Data API OAuth 설계 완료. update_youtube_data.py 연동 준비.",
+        "next": "OAuth 안정성 검증 → 수동 테스트 → 주간 cron 추가",
+        "desc": "실시간 자동화 금지. 5분 cron Google Sheets ↔ CSV 동기화. video_id 절대 식별자 원칙. 수동 보호 컬럼(곡명·BPM·장르) 덮어쓰기 금지."
+      },
+      {
+        "id": "1-5", "name": "음원 BPM/Key 자동 분석 안정화", "status": "in-progress",
+        "room_ids": ["room_dev"],
+        "last": "분석 모듈 수정 범위 정의 완료.",
+        "next": "분석 모듈 → 병합 로직 → 경로 처리 → 예외 처리 순서로 분할 수정",
+        "desc": "AG_CODE_PATCH_TEMPLATE_v1 방식만 허용. 전면 리팩토링 금지. SS_상품마스터.csv 정합 목표."
+      },
+      {
+        "id": "1-6", "name": "네이버스토어 상품 구조 확정", "status": "parallel",
+        "room_ids": ["room_naver"],
+        "last": "TOP10 구조 8섹션 확정. 가격표 구조 통일. FAQ 템플릿 완성.",
+        "next": "토벌 섹션1 제작 → 척살/전곡 미완 섹션 마무리 → 4개 상품 최종 통일 → 네이버 등록",
+        "desc": "전곡/개별(척살·토벌)/맞춤/편집편곡 4개 상품 구조. 라이선스 정책: 공연 일회성 10만원, 영구 15만원. 스토어 미오픈 상태로 메시지 기반 임시 운영 중."
+      },
+      {
+        "id": "1-7", "name": "종합소득세 준비", "status": "parallel",
+        "room_ids": ["room_finance"],
+        "last": "2025년 총수입 2,100만원 확정. 단순경비율 64.1% 적용 확인. 예상 사업소득 760만원.",
+        "next": "종합소득세 신고 준비 → 예상 세액 계산 → 2026년 자금 완전 분리 실행",
+        "desc": "과거 5년 무신고 처리 전략 미확정. 외주 원천징수 처리 여부 미결. 사업·개인 자금 완전 분리 미정착."
+      }
+    ]
+  },
+  {
+    "id": 2, "label": "2단계", "title": "전략 자동 리포트",
+    "condition": "1단계 100% 완료 후 착수",
+    "subtracks": [
+      { "id": "2-1", "name": "YouTube API 자동 수집", "status": "hold", "room_ids": ["room_strategy"], "last": "OAuth 설계 완료, 실시간 연결 보류", "next": "1단계 완료 후 착수", "desc": "최근 7일 자동 집계. 시간대별 시청 로그." },
+      { "id": "2-2", "name": "댓글 반자동 시스템", "status": "ready", "room_ids": ["room_dev"], "last": "댓글 분류 체계 정의(PRAISE/QUESTION/LICENSE/REQUEST/IGNORE), 답글 톤 가이드 초안 완성", "next": "Sheet 컬럼 구조 확정 → OAuth → Apps Script 1차 구현 → AI 답글 함수 연결", "desc": "Google Sheet 구조 미확정 상태." },
+      { "id": "2-3", "name": "GPT 주간 전략 리포트", "status": "hold", "room_ids": ["room_strategy"], "last": "데이터 수집 전. 구조 설계 준비 단계", "next": "1단계 완료 후", "desc": "유형별 평균 성과 계산. 노션 자동 저장." },
+      { "id": "2-4", "name": "첫 6시간 점수 모델 설계", "status": "hold", "room_ids": ["room_strategy"], "last": "21시 업로드 전략 근거 확보, 밤 21~01시 구간 집중 확인", "next": "1단계 완료 후", "desc": "영상별 구독 기여도 자동 계산식. 구독 전환 누적형 구조." }
+    ]
+  },
+  {
+    "id": 3, "label": "3단계", "title": "수익 구조 설계",
+    "subtracks": [
+      { "id": "3-1", "name": "네이버 4개 상품 최종 등록", "status": "hold", "room_ids": ["room_naver"], "last": "병행 트랙에서 구조 작업 중", "next": "병행 트랙 완료 후 본격 착수" },
+      { "id": "3-2", "name": "라이선스 자동 발급 시스템", "status": "designing", "room_ids": ["room_naver"], "last": "PDF 자동 발송 + 이메일 전송 방식 확정. Claude Code 설치 완료.", "next": "라이선스 허용 범위 확정 → Drive LICENSES 폴더 → Docs 템플릿 → Make 시나리오", "desc": "네이버 주문 → Gmail 파싱 vs API 방식 미확정. Apps Script PDF 생성 코드 미작성." },
+      { "id": "3-3", "name": "매출/비용/손익 테이블 구조", "status": "hold", "room_ids": ["room_finance"], "last": "구조 설계 미착수", "next": "3단계 진입 후" }
+    ]
+  },
+  { "id": 4, "label": "4단계", "title": "콘텐츠 ↔ 매출 연결", "condition": "수익 발생 후", "subtracks": [] },
+  { "id": 5, "label": "5단계", "title": "세금·건보료 예측", "condition": "안정 수익 발생 후", "subtracks": [] }
+]

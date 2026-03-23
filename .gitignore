@@ -1,28 +1,29 @@
-# Google API
-*.json
+# Google API credentials (절대 커밋 금지)
 *.pickle
-token*
-credentials*
-service_account*
+token*.json
+credentials*.json
+service_account*.json
+*_credentials.json
+*_token.json
+
+# 프론트엔드 설정 JSON은 추적 유지 (위 규칙 negation)
+!package.json
+!package-lock.json
+!tsconfig.json
+!jsconfig.json
+!components.json
+!**/src/data/*.json
+
+# 민감 설정파일 (GitHub PAT, Spreadsheet ID 포함)
+**/config/app_secrets.json
+**/config/sheets_config.json
 
 # Python
 __pycache__/
 *.pyc
-
-# Mac
-.DS_Store# Google API secrets
-*.json
-*.pickle
-token*
-credentials*
-service_account*
 
 # Mac
 .DS_Store
-
-# Python
-__pycache__/
-*.pyc
 
 # Large media files - DO NOT track in git
 *.mp4
@@ -41,7 +42,13 @@ __pycache__/
 *.tar
 *.tar.gz
 
-# Logs (auto-generated, do not track)
+# Node
+node_modules/
+dist/
+release/
+*.tsbuildinfo
+
+# Logs (auto-generated)
 **/logs/*.log
 **/logs/*.out
 scripts_스크립트/logs/
@@ -50,5 +57,4 @@ scripts_스크립트/logs/
 
 # Runtime / temp
 .playwright-cli/
-*.png
 output/

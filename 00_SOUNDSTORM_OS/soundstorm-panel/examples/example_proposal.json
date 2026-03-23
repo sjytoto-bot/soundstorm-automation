@@ -1,0 +1,37 @@
+{
+  "proposal_id": "550e8400-e29b-41d4-a716-446655440000",
+  "agent_id": "claude-sonnet-4-6",
+  "timestamp": "2026-02-23T09:00:00.000Z",
+  "mode": "supervised",
+  "risk_level": "low",
+  "actions": [
+    {
+      "action_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "type": "update",
+      "path": "$.stages[0].subtracks[2].status",
+      "old_value": "in-progress",
+      "new_value": "completed",
+      "reversible": true
+    },
+    {
+      "action_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+      "type": "update",
+      "path": "$.stages[0].subtracks[2].last",
+      "old_value": "믹스 작업 진행 중",
+      "new_value": "최종 믹스 완료 및 마스터링 승인",
+      "reversible": true
+    },
+    {
+      "action_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+      "type": "create",
+      "path": "$.stages[0].subtracks[3].changelog[-1]",
+      "new_value": {
+        "date": "2026-02-23",
+        "note": "이전 서브트랙 완료로 인한 자동 준비 상태 전환 제안"
+      },
+      "reversible": true
+    }
+  ],
+  "explanation": "Stage 01 세 번째 서브트랙의 작업이 완료된 것으로 판단됨. 상태를 in-progress → completed 로 변경하고, 다음 서브트랙 changelog에 컨텍스트 진입 기록을 추가할 것을 제안합니다.",
+  "confidence_score": 0.91
+}

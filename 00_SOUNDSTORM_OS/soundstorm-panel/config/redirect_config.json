@@ -1,0 +1,5 @@
+{
+  "redirectLogsPath":  "/Users/sinjiyong/dev/soundstorm/07_AUTOMATION_자동화/redirect_tracker/redirect_logs.csv",
+  "redirectLinksPath": "/Users/sinjiyong/dev/soundstorm/07_AUTOMATION_자동화/redirect_tracker/redirectLinks.json",
+  "autoDetect": true
+}

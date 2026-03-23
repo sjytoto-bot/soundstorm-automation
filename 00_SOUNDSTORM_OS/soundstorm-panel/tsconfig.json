@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    /* ── 출력 타깃 ─────────────────────────────────────────── */
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",   /* Vite/esbuild 방식 */
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+
+    /* ── JSX ──────────────────────────────────────────────── */
+    "jsx": "react-jsx",
+
+    /* ── 경로 alias (@/ → src/) ───────────────────────────── */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* ── 타입 엄격도 ─────────────────────────────────────── */
+    "strict": true,
+    "noUnusedLocals": false,          /* .jsx 파일과 혼재 — 일단 off */
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    /* ── 상호운용 ─────────────────────────────────────────── */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,  /* .ts/.tsx import 확장자 허용 */
+    "allowJs": true,                     /* tokens.js 등 .jsx/.js 파일 import 허용 */
+    "checkJs": false,                    /* .js 파일 자체는 타입 체크 안 함 */
+    "resolveJsonModule": true,
+    "isolatedModules": true,             /* Vite 요구사항 */
+    "skipLibCheck": true,                /* .jsx 혼재 & 서드파티 타입 오류 무시 */
+
+    /* ── 타입 체킹 전용 (emit 없음 — Vite가 트랜스파일) ──── */
+    "noEmit": true,
+
+    /* ── 타입 선언 ────────────────────────────────────────── */
+    "types": ["vite/client"]
+  },
+
+  /* .ts/.tsx 파일만 직접 체크 (.jsx는 import 허용만, 파싱 대상 아님) */
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "release", "electron"]
+}
