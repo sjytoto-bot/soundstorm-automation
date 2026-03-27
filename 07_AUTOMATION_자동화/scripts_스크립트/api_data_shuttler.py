@@ -522,7 +522,7 @@ def sync_final_layer(ss, master_rows):
     _RawData_Master(source) → SS_음원마스터_최종(final) 단방향 동기화.
     Apps Script syncMasterV10() 결과와 100% 동일하게 동작한다.
     """
-    FINAL_SHEET = 'SS_음원마스터_최종'
+    FINAL_SHEETS = ['SS_음원마스터_최종', '마스터시트', '표1']
 
     # ── 보호 컬럼 (절대 쓰기 금지 — Apps Script MANUAL_PROTECTED 동일) ───────────
     PROTECTED = {'곡명', '상품ID', '음원파일', '영상파일'}
@@ -563,13 +563,26 @@ def sync_final_layer(ss, master_rows):
         '유튜브URL':          ['유튜브URL'],
     }
 
-    print(f"\n🔗 [FinalLayerSync v2] '{FINAL_SHEET}' 동기화 시작 (Apps Script 동일 모드)...")
+    ws_final = None
+    final_sheet_name = None
+    for candidate in FINAL_SHEETS:
+        try:
+            ws_final = ss.worksheet(candidate)
+            final_sheet_name = candidate
+            break
+        except gspread.exceptions.WorksheetNotFound:
+            continue
 
-    try:
-        ws_final = ss.worksheet(FINAL_SHEET)
-    except gspread.exceptions.WorksheetNotFound:
-        print(f"  ⚠️  '{FINAL_SHEET}' 시트 없음 — 스킵")
+    print("\n🔗 [FinalLayerSync v2] 최종 마스터 시트 동기화 시작 (Apps Script 동일 모드)...")
+
+    if ws_final is None:
+        print(f"  ⚠️  최종 마스터 시트 없음 — 후보: {', '.join(FINAL_SHEETS)} — 스킵")
         return 0
+
+    if final_sheet_name != FINAL_SHEETS[0]:
+        print(f"  ℹ️  '{FINAL_SHEETS[0]}' 없음 → 기존 운영 탭 '{final_sheet_name}' 사용")
+    else:
+        print(f"  ✅ 최종 탭: '{final_sheet_name}'")
 
     # ── Step 1: Final 시트 전체 읽기 ────────────────────────────────────────────
     all_values = ws_final.get_all_values()
@@ -586,7 +599,7 @@ def sync_final_layer(ss, master_rows):
 
     if header_row_idx is None:
         raise Exception(
-            f"CRITICAL: video_id column not found in '{FINAL_SHEET}' "
+            f"CRITICAL: video_id column not found in '{final_sheet_name}' "
             f"(탐색 범위 1~3행 — 헤더 이동 또는 셀 병합 확인)"
         )
 
@@ -599,7 +612,7 @@ def sync_final_layer(ss, master_rows):
     )
     if vid_col_idx is None:
         raise Exception(
-            f"CRITICAL: video_id column not found in '{FINAL_SHEET}' headers "
+            f"CRITICAL: video_id column not found in '{final_sheet_name}' headers "
             f"(헤더 행 {header_row_idx + 1}행 발견됐으나 video_id 컬럼 없음)"
         )
 
