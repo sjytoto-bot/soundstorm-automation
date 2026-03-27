@@ -177,7 +177,7 @@ jobs:
           done
 
       - name: Enrich latest video stats (non-blocking)
-        if: success() && secrets.RECENT_VIDEO_WORKER_URL != ''
+        if: success()
         continue-on-error: true
         env:
           RECENT_VIDEO_WORKER_URL: ${{ secrets.RECENT_VIDEO_WORKER_URL }}
@@ -185,6 +185,10 @@ jobs:
           GOOGLE_SHEETS_ID:    ${{ secrets.GOOGLE_SHEETS_ID }}
         run: |
           echo "▶ recent-video enrichment trigger (non-blocking)"
+          if [ -z "$RECENT_VIDEO_WORKER_URL" ]; then
+            echo "ℹ️ RECENT_VIDEO_WORKER_URL not configured — skip worker enrichment"
+            exit 0
+          fi
           RECENT_JSON=$(python 07_AUTOMATION_자동화/scripts_스크립트/resolve_recent_video_candidate.py)
           echo "recent candidate: $RECENT_JSON"
           VIDEO_ID=$(printf '%s' "$RECENT_JSON" | python -c 'import sys,json; obj=json.load(sys.stdin); print(obj.get("video_id",""))')
