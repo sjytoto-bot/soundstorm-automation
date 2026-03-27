@@ -1257,6 +1257,8 @@ def main():
             value_input_option='USER_ENTERED'
         )
         print(f"[Master] 업데이트 완료 (총 {len(df_master)}행)")
+        # Final layer sync와 이후 집계는 복원/정규화가 반영된 최신 master snapshot을 사용한다.
+        master_rows = df_master.to_dict(orient='records')
     
     # Update _RawData_FullPeriod (Append-Only 구조)
     if full_period_rows:
