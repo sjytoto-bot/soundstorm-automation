@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _BUCKET_NAME = "soundstorm-config"
 _OBJECT_NAME = "processed_orders.json"
 _SESSION_OBJECT = "naver_session.json"
+_YOUTUBE_SESSION_OBJECT = "youtube_studio_session.json"
 
 
 def load_processed() -> Set[str]:
@@ -95,6 +96,50 @@ def save_session(local_path: str) -> None:
         logger.info(f"[GCS] 세션 파일 저장 완료")
     except Exception as e:
         logger.warning(f"[GCS] 세션 저장 실패: {e}")
+
+
+def load_named_session(local_path: str, object_name: str) -> bool:
+    import os as _os
+    try:
+        client = storage.Client()
+        bucket = client.bucket(_BUCKET_NAME)
+        blob = bucket.blob(object_name)
+        blob.download_to_filename(local_path)
+        if not _os.path.exists(local_path) or _os.path.getsize(local_path) == 0:
+            logger.warning(f"[GCS] named session file empty: {object_name}")
+            _os.remove(local_path)
+            return False
+        logger.info(f"[GCS] named session loaded: {object_name} -> {local_path}")
+        return True
+    except NotFound:
+        if _os.path.exists(local_path):
+            _os.remove(local_path)
+        logger.info(f"[GCS] named session missing: {object_name}")
+        return False
+    except Exception as e:
+        if _os.path.exists(local_path):
+            _os.remove(local_path)
+        logger.warning(f"[GCS] named session load failed ({object_name}): {e}")
+        return False
+
+
+def save_named_session(local_path: str, object_name: str) -> None:
+    try:
+        client = storage.Client()
+        bucket = client.bucket(_BUCKET_NAME)
+        blob = bucket.blob(object_name)
+        blob.upload_from_filename(local_path)
+        logger.info(f"[GCS] named session saved: {object_name}")
+    except Exception as e:
+        logger.warning(f"[GCS] named session save failed ({object_name}): {e}")
+
+
+def load_youtube_session(local_path: str) -> bool:
+    return load_named_session(local_path, _YOUTUBE_SESSION_OBJECT)
+
+
+def save_youtube_session(local_path: str) -> None:
+    save_named_session(local_path, _YOUTUBE_SESSION_OBJECT)
 
 
 def upload_screenshot(local_path: str, name: str = "login_debug.png") -> None:

@@ -261,6 +261,56 @@ def execute_query_with_retry(request, label="Query"):
                 time.sleep(wait_time)
     return None
 
+def get_authenticated_channel_info(youtube):
+    """OAuth 토큰이 실제 어떤 채널에 귀속되어 있는지 확인한다.
+
+    Analytics API 집계는 `channel==mine` 기준으로 동작하므로, 잘못된 계정 토큰이면
+    Analytics_* 시트를 0으로 덮어쓸 수 있다. Data API는 explicit CHANNEL_ID를 사용해도
+    Analytics는 그렇지 않기 때문에, 집계 전에 mine 채널을 검증해야 한다.
+    """
+    try:
+        resp = youtube.channels().list(part='id,snippet', mine=True, maxResults=1).execute()
+        items = resp.get('items', [])
+        if not items:
+            return None
+        item = items[0]
+        return {
+            "id": item.get('id'),
+            "title": item.get('snippet', {}).get('title', ''),
+        }
+    except Exception as e:
+        print(f"  ⚠️ [Auth Guard] mine 채널 조회 실패: {e}")
+        return None
+
+def ensure_expected_analytics_owner(youtube):
+    mine = get_authenticated_channel_info(youtube)
+    if not mine:
+        raise RuntimeError(
+            "❌ [Auth Guard] OAuth 토큰의 mine 채널을 확인할 수 없습니다.\n"
+            "   Analytics 집계를 안전하게 진행할 수 없어 중단합니다."
+        )
+
+    mine_id = mine.get("id")
+    mine_title = mine.get("title") or "unknown"
+    print(f"  🔐 [Auth Guard] mine 채널 확인: {mine_title} ({mine_id})")
+
+    if mine_id != CHANNEL_ID:
+        raise RuntimeError(
+            "❌ [Auth Guard] 잘못된 YouTube OAuth 계정입니다.\n"
+            f"   expected CHANNEL_ID={CHANNEL_ID}\n"
+            f"   actual mine={mine_id} ({mine_title})\n"
+            "   Analytics_* / Channel_KPI / Snapshot을 0으로 덮어쓰는 사고를 막기 위해 중단합니다."
+        )
+
+def summary_has_meaningful_data(sum_row):
+    return any([
+        int(sum_row.get('views', 0) or 0) > 0,
+        int(sum_row.get('likes', 0) or 0) > 0,
+        int(sum_row.get('watch_time_min', 0) or 0) > 0,
+        int(sum_row.get('avg_duration_sec', 0) or 0) > 0,
+        int(sum_row.get('subscriber_change', 0) or 0) > 0,
+    ])
+
 def fetch_demographics(analytics, end_dt):
     # FORCE DATE RANGE: 365 days window for stable demographics
     start_date = (end_dt - relativedelta(days=365)).strftime('%Y-%m-%d')
@@ -796,6 +846,7 @@ def main():
     # 1. API 인증
     youtube, analytics = get_authenticated_service()
     print("✅ YouTube API 연결 성공")
+    ensure_expected_analytics_owner(youtube)
 
     # 2-0. [v14.1] 채널 개요 통계 수집 (Channel KPI 용)
     print("📊 채널 KPI 수집 중...")
@@ -1458,6 +1509,17 @@ def main():
                 sum_row['watch_time_min'] = int(r[hmap['estimatedMinutesWatched']]) if 'estimatedMinutesWatched' in hmap else 0
                 sum_row['avg_duration_sec'] = int(r[hmap['averageViewDuration']]) if 'averageViewDuration' in hmap else 0
                 sum_row['subscriber_change'] = int(r[hmap['subscribersGained']]) if 'subscribersGained' in hmap else 0
+            elif master_rows:
+                raise RuntimeError(
+                    f"[Analytics Aggregation] {sheet_name} SUMMARY 응답이 비었습니다. "
+                    "master_rows는 존재하므로 잘못된 OAuth 계정/권한/Analytics 응답 이상 가능성이 큽니다."
+                )
+
+            if master_rows and not summary_has_meaningful_data(sum_row):
+                raise RuntimeError(
+                    f"[Analytics Aggregation] {sheet_name} SUMMARY가 전부 0입니다. "
+                    "실데이터가 있는 채널에서 0 덮어쓰기를 방지하기 위해 중단합니다."
+                )
             agg_rows.append(sum_row)
             
             # VIDEO Rows (Top 10 sorted by views)

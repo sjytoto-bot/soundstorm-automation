@@ -1,14 +1,19 @@
 import asyncio
 import logging
 import os
+import sys
 import traceback
 
 import requests
 from flask import Flask, jsonify, request
 
 from config import WorkerConfig
-from scraper import NaverSellerScraper
-import gcs_store
+
+SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts_스크립트"))
+if SCRIPTS_DIR not in sys.path:
+    sys.path.append(SCRIPTS_DIR)
+
+from recent_video_pipeline import make_metric_result, normalize_metric_result  # noqa: E402
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -25,6 +30,9 @@ def run_worker():
         return jsonify({"status": "error", "message": "NAVER_ID / NAVER_PW 환경변수가 설정되지 않았습니다."}), 500
 
     try:
+        from scraper import NaverSellerScraper
+        import gcs_store
+
         scraper = NaverSellerScraper(
             naver_id=WorkerConfig.NAVER_ID,
             naver_pw=WorkerConfig.NAVER_PW,
@@ -84,6 +92,8 @@ def seed_session():
     Body: application/json (Playwright storage_state JSON)
     """
     try:
+        import gcs_store
+
         data = request.get_data()
         if not data:
             return jsonify({"status": "error", "message": "Request body가 비어있습니다."}), 400
@@ -108,9 +118,107 @@ def seed_session():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route('/seed-youtube-session', methods=['POST'])
+def seed_youtube_session():
+    try:
+        import gcs_store
+
+        data = request.get_data()
+        if not data:
+            return jsonify({"status": "error", "message": "Request body가 비어있습니다."}), 400
+
+        import json
+        json.loads(data)
+
+        tmp_path = "/tmp/seed_youtube_session.json"
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+
+        gcs_store.save_youtube_session(tmp_path)
+
+        import shutil
+        shutil.copy(tmp_path, WorkerConfig.YOUTUBE_STUDIO_SESSION_PATH)
+
+        return jsonify({"status": "success", "message": "YouTube Studio 세션이 저장되었습니다.", "size": len(data)})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/', methods=['GET'])
 def health():
     return "Playwright Worker is running."
+
+
+@app.route('/recent-video-stats', methods=['POST'])
+def recent_video_stats():
+    payload = request.get_json(silent=True) or {}
+    video_id = str(payload.get("video_id") or "").strip()
+    mode = str(payload.get("mode") or "since_publish").strip()
+    published_at = payload.get("published_at") or payload.get("published_at_hint")
+    timeout_sec = int(payload.get("timeout_sec") or 90)
+
+    if len(video_id) != 11:
+        return jsonify(
+            make_metric_result(
+                status="video_not_found",
+                video_id=video_id,
+                source="worker",
+                metric_window=mode,
+                video_published_at=published_at,
+                observed_in_studio=False,
+                reason="video_id is missing or invalid",
+            )
+        ), 400
+
+    session_path = WorkerConfig.YOUTUBE_STUDIO_SESSION_PATH
+    if not os.path.exists(session_path):
+        try:
+            import gcs_store
+            gcs_store.load_youtube_session(session_path)
+        except Exception:
+            pass
+
+    if not os.path.exists(session_path):
+        return jsonify(
+            make_metric_result(
+                status="auth_expired",
+                video_id=video_id,
+                source="worker",
+                metric_window=mode,
+                video_published_at=published_at,
+                observed_in_studio=False,
+                reason="YouTube Studio session not seeded in worker",
+            )
+        ), 200
+
+    try:
+        from youtube_studio_collector import collect_recent_video_stats
+
+        result = normalize_metric_result(
+            asyncio.run(
+                collect_recent_video_stats(
+                    video_id=video_id,
+                    mode=mode,
+                    published_at=published_at,
+                    session_path=session_path,
+                    timeout_sec=timeout_sec,
+                )
+            ),
+            default_video_id=video_id,
+            default_source="worker",
+        )
+    except Exception as e:
+        logger.error(f"recent_video_stats 오류: {e}\n{traceback.format_exc()}")
+        result = make_metric_result(
+            status="partial",
+            video_id=video_id,
+            source="worker",
+            metric_window=mode,
+            video_published_at=published_at,
+            observed_in_studio=False,
+            reason=f"worker recent-video collector failed: {e}",
+        )
+    return jsonify(result), 200
 
 
 if __name__ == '__main__':

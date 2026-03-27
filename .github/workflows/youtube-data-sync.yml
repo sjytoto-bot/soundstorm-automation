@@ -176,6 +176,36 @@ jobs:
             fi
           done
 
+      - name: Enrich latest video stats (non-blocking)
+        if: success() && secrets.RECENT_VIDEO_WORKER_URL != ''
+        continue-on-error: true
+        env:
+          RECENT_VIDEO_WORKER_URL: ${{ secrets.RECENT_VIDEO_WORKER_URL }}
+          SERVICE_ACCOUNT_B64: ${{ secrets.SERVICE_ACCOUNT_B64 }}
+          GOOGLE_SHEETS_ID:    ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: |
+          echo "▶ recent-video enrichment trigger (non-blocking)"
+          RECENT_JSON=$(python 07_AUTOMATION_자동화/scripts_스크립트/resolve_recent_video_candidate.py)
+          echo "recent candidate: $RECENT_JSON"
+          VIDEO_ID=$(printf '%s' "$RECENT_JSON" | python -c 'import sys,json; obj=json.load(sys.stdin); print(obj.get("video_id",""))')
+          PUBLISHED_AT=$(printf '%s' "$RECENT_JSON" | python -c 'import sys,json; obj=json.load(sys.stdin); print(obj.get("video_published_at") or "")')
+          STATUS=$(printf '%s' "$RECENT_JSON" | python -c 'import sys,json; obj=json.load(sys.stdin); print(obj.get("status") or "")')
+          if [ -z "$VIDEO_ID" ] || [ "$STATUS" != "ok" ]; then
+            echo "ℹ️ no eligible recent candidate — skip worker enrichment"
+            exit 0
+          fi
+          BODY="{\"video_id\":\"$VIDEO_ID\",\"mode\":\"since_publish\",\"published_at\":\"$PUBLISHED_AT\",\"timeout_sec\":90}"
+          RESP=$(curl -sS --max-time 30 -X POST "$RECENT_VIDEO_WORKER_URL/recent-video-stats" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" || true)
+          echo "worker response: ${RESP:-<empty>}"
+          if [ -z "$RESP" ]; then
+            echo "ℹ️ empty worker response — skip write-back"
+            exit 0
+          fi
+          export RECENT_VIDEO_RESULT_JSON="$RESP"
+          python 07_AUTOMATION_자동화/scripts_스크립트/write_recent_video_worker_result.py || true
+
       # ── 실패 진단 ─────────────────────────────────────────────────────────────
       - name: Diagnose failure
         if: failure()

@@ -16,3 +16,4 @@ class WorkerConfig:
 
     # Playwright 세션 파일 (Cloud Run /tmp — 재시작 시 초기화되어도 무방)
     SESSION_PATH = os.environ.get('SESSION_PATH', '/tmp/naver_session.json')
+    YOUTUBE_STUDIO_SESSION_PATH = os.environ.get('YOUTUBE_STUDIO_SESSION_PATH', '/tmp/youtube_studio_session.json')

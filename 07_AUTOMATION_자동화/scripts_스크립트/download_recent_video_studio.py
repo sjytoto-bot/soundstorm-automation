@@ -28,6 +28,12 @@ from datetime import datetime, timezone
 import gspread
 from google.oauth2.service_account import Credentials as SACredentials
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from recent_video_pipeline import (
+    make_metric_result,
+    normalize_metric_result,
+    select_recent_video_candidate,
+    write_metric_result,
+)
 
 # ── 경로 설정 ─────────────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).parent.parent
@@ -35,7 +41,7 @@ EXPORTS_DIR   = BASE_DIR / 'youtube_exports'
 CREDENTIALS_DIR = BASE_DIR / 'credentials'
 
 CHANNEL_ID    = 'UCAvSo9RLq0rCy64IH2nm91w'
-CDP_URL       = 'http://localhost:9222'
+CDP_URL       = 'http://127.0.0.1:9222'
 
 IS_CI = os.environ.get('CI') == 'true' or os.environ.get('GITHUB_ACTIONS') == 'true'
 if IS_CI:
@@ -79,25 +85,19 @@ def _get_gspread_client():
     return gspread.authorize(creds)
 
 
-def _get_latest_video_id(gc) -> tuple[str, str]:
-    """_RawData_Master에서 upload_date DESC 기준 최근 video_id 반환 (video_id, upload_date)"""
+def _get_latest_video_id(gc) -> tuple[str, str, str | None]:
+    """_RawData_Master에서 최근 보강 대상 video_id 반환."""
     sh = gc.open_by_key(SPREADSHEET_ID)
     ws = sh.worksheet(TARGET_SHEET)
     records = ws.get_all_records()
-
-    dated = [
-        (str(r.get('upload_date', '')).strip(), str(r.get('video_id', '')).strip())
-        for r in records
-    ]
-    # 11자리 YouTube video_id + 날짜 있는 행만
-    dated = [(d, v) for d, v in dated if d and len(v) == 11]
-    if not dated:
-        raise RuntimeError("_RawData_Master에 유효한 video_id/upload_date 데이터 없음")
-
-    dated.sort(reverse=True)
-    latest_date, latest_id = dated[0]
+    selection = select_recent_video_candidate(records, max_age_hours=72)
+    if selection.get("status") != "ok" or not selection.get("video_id"):
+        raise RuntimeError(selection.get("reason") or "_RawData_Master에 최근 보강 대상 없음")
+    latest_id = selection["video_id"]
+    latest_date = str(selection.get("video_published_at") or "")[:10]
     print(f"  최근 video_id: {latest_id}  (업로드: {latest_date})")
-    return latest_id, latest_date
+    print(f"  선택 근거: {selection.get('reason')}")
+    return latest_id, latest_date, selection.get("video_published_at")
 
 
 # ── Studio URL 빌더 ───────────────────────────────────────────────────────────
@@ -215,96 +215,81 @@ def _parse_csv(csv_path: str) -> dict:
 
 # ── Sheets 업데이트 ───────────────────────────────────────────────────────────
 
-def _update_master(gc, video_id: str, stats: dict):
-    """_RawData_Master 해당 video_id 행 impressions/ctr 업데이트 (cell-by-cell)"""
-    sh = gc.open_by_key(SPREADSHEET_ID)
-    ws = sh.worksheet(TARGET_SHEET)
-
-    headers = ws.row_values(1)
-
-    def _col(name):
-        try:
-            return headers.index(name) + 1
-        except ValueError:
-            return None
-
-    vid_col = _col('video_id')
-    imp_col = _col('impressions')
-    ctr_col = _col('ctr')
-    src_col = _col('ctr_source')
-    upd_col = _col('ctr_updated_at')
-
-    if not all([vid_col, imp_col, ctr_col]):
-        raise RuntimeError(f"필수 컬럼 없음 (video_id/impressions/ctr). headers: {headers[:10]}")
-
-    col_vals = ws.col_values(vid_col)
-    try:
-        row_idx = col_vals.index(video_id) + 1
-    except ValueError:
-        raise RuntimeError(f"video_id '{video_id}' not found in {TARGET_SHEET}")
-
-    now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-
-    ws.update_cell(row_idx, imp_col, stats['impressions'])
-    ws.update_cell(row_idx, ctr_col, stats['ctr'])
-    if src_col:
-        ws.update_cell(row_idx, src_col, 'studio_since_publish')
-    if upd_col:
-        ws.update_cell(row_idx, upd_col, now_utc)
-
-    print(f"  ✅ {video_id}: impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}  (갱신: {now_utc})")
+def _write_recent_metrics(gc, result: dict):
+    summary = write_metric_result(gc, SPREADSHEET_ID, TARGET_SHEET, result)
+    if summary["wrote"]:
+        print(
+            f"  ✅ {result['video_id']}: impressions={result['impressions']:,}  "
+            f"ctr={result['ctr']:.4f}  ({result['source']} / {result['captured_at']})"
+        )
+    else:
+        print(f"  ℹ️ write 스킵: {summary['reason']}")
 
 
-# ── 메인 ─────────────────────────────────────────────────────────────────────
-
-def main():
-    os.makedirs(EXPORTS_DIR, exist_ok=True)
-
-    print("=" * 60)
-    print("최근 영상 '게시 이후' 통계 직접 갱신 v1.0")
-    print("=" * 60)
-
-    # 1. 최근 video_id 조회
-    print("\n[1] _RawData_Master → 최근 video_id 조회...")
-    gc = _get_gspread_client()
-    video_id, upload_date = _get_latest_video_id(gc)
-
+def collect_recent_video_stats(video_id: str, *, video_published_at: str | None = None, timeout_sec: int = 90) -> dict:
     url = _build_video_url(video_id)
-    print(f"\n[2] Studio 영상 분석 진입 (게시 이후)...")
-    print(f"    video_id : {video_id}  |  upload_date : {upload_date}")
+    collector_result = make_metric_result(
+        status="partial",
+        video_id=video_id,
+        source="local_cdp",
+        metric_window="since_publish",
+        video_published_at=video_published_at,
+        observed_in_studio=False,
+        reason="collector started",
+    )
 
     with sync_playwright() as p:
         try:
             browser = p.chromium.connect_over_cdp(CDP_URL)
         except Exception as e:
-            print(f"❌ CDP 연결 실패: {e}")
-            print("  → sync_studio_csv.sh가 Chrome을 먼저 시작해야 합니다.")
-            sys.exit(1)
+            return make_metric_result(
+                status="partial",
+                video_id=video_id,
+                source="local_cdp",
+                metric_window="since_publish",
+                video_published_at=video_published_at,
+                observed_in_studio=False,
+                reason=f"CDP unavailable: {e}",
+            )
 
         contexts = browser.contexts
         if not contexts:
-            print("❌ 열린 브라우저 컨텍스트 없음")
-            sys.exit(1)
+            browser.close()
+            return make_metric_result(
+                status="auth_expired",
+                video_id=video_id,
+                source="local_cdp",
+                metric_window="since_publish",
+                video_published_at=video_published_at,
+                observed_in_studio=False,
+                reason="No active browser context available",
+            )
 
         context = contexts[0]
         page = context.new_page()
         page.set_viewport_size({"width": 1280, "height": 900})
 
-        # 영상 분석 페이지 직접 진입 (video-level은 since_publish URL 정상 렌더링)
         try:
-            page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            page.goto(url, wait_until='domcontentloaded', timeout=min(timeout_sec, 30) * 1000)
         except PlaywrightTimeoutError:
             pass
 
         if 'accounts.google.com' in page.url or 'signin' in page.url.lower():
-            print("❌ 로그인 필요 — CDP Chrome에서 YouTube Studio 로그인 확인")
             page.screenshot(path=str(EXPORTS_DIR / 'debug_recent_video.png'))
-            sys.exit(1)
+            browser.close()
+            return make_metric_result(
+                status="auth_expired",
+                video_id=video_id,
+                source="local_cdp",
+                metric_window="since_publish",
+                video_published_at=video_published_at,
+                observed_in_studio=False,
+                reason="Studio login required",
+            )
 
         print("[3] 개요 탭 로드 대기 (최대 30초)...")
         page.wait_for_timeout(8000)
 
-        # 도달범위 탭 클릭 (노출수/CTR이 있는 탭)
         print("[3-B] 도달범위 탭 클릭...")
         try:
             reach_tab = page.get_by_text("도달범위", exact=True).first
@@ -314,8 +299,16 @@ def main():
             print("  ✅ 도달범위 탭 이동")
         except Exception as e:
             print(f"  ⚠️ 도달범위 탭 클릭 실패: {e}")
+            collector_result = make_metric_result(
+                status="studio_layout_changed",
+                video_id=video_id,
+                source="local_cdp",
+                metric_window="since_publish",
+                video_published_at=video_published_at,
+                observed_in_studio=False,
+                reason=f"Reach tab not found: {e}",
+            )
 
-        # 오류 시 재시도 버튼 클릭 (1회)
         retry_btns = page.get_by_text("재시도").all()
         if retry_btns:
             print(f"  재시도 버튼 {len(retry_btns)}개 클릭 중...")
@@ -327,18 +320,14 @@ def main():
                     pass
             page.wait_for_timeout(5000)
 
-        # [방법 A] DOM에서 직접 노출수/CTR 추출 (CSV 다운로드 불필요)
         print("[4-A] DOM에서 노출수/CTR 직접 추출...")
         dom_stats = page.evaluate("""() => {
-            // 한국어 수 표기 변환 (1.4천 → 1400, 2.1만 → 21000)
             function parseKorNum(s) {
                 s = s.trim();
                 if (s.includes('천')) return Math.round(parseFloat(s.replace('천', '')) * 1000);
                 if (s.includes('만')) return Math.round(parseFloat(s.replace('만', '')) * 10000);
                 return parseInt(s.replace(/,/g, ''), 10) || 0;
             }
-
-            // 모든 텍스트 노드 수집
             const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
             const texts = [];
             let node;
@@ -346,23 +335,17 @@ def main():
                 const t = node.textContent.trim();
                 if (t) texts.push(t);
             }
-
             let impressions = 0;
             let ctr = 0.0;
-
             for (let i = 0; i < texts.length; i++) {
                 const t = texts[i];
                 const ctx = texts.slice(Math.max(0, i-4), i+4).join(' ');
-
-                // 노출수: 숫자 + 단위(천/만) 또는 콤마 정수
                 if (impressions === 0 && /^[0-9]+\\.?[0-9]*[천만]?$/.test(t) && t !== '0') {
                     if (ctx.includes('노출수') || ctx.includes('Impression')) {
                         const n = parseKorNum(t);
                         if (n >= 100) impressions = n;
                     }
                 }
-
-                // CTR: x.x% 형태 + 클릭률/CTR 컨텍스트
                 if (ctr === 0.0) {
                     const m = t.match(/^([0-9]+\\.?[0-9]*)%$/);
                     if (m) {
@@ -373,13 +356,11 @@ def main():
                     }
                 }
             }
-
             return { impressions, ctr };
         }""")
 
         print(f"  DOM 추출: impressions={dom_stats.get('impressions', 0):,}  ctr={dom_stats.get('ctr', 0):.4f}")
 
-        # [방법 B] DOM 추출 실패 시 — Export 버튼 클릭 후 CSV 다운로드
         zip_path = None
         if dom_stats.get('impressions', 0) == 0:
             print("[4-B] DOM 추출 실패 → Export 버튼 CSV 다운로드 시도...")
@@ -389,7 +370,7 @@ def main():
                     with page.expect_download(timeout=60000) as dl_info:
                         export_btn.click()
                         page.wait_for_timeout(1500)
-                        csv_item = page.locator('tp-yt-paper-item[test-id="CSV"]').first
+                        csv_item = page.locator('tp-yt-paper-item[test-id=\"CSV\"]').first
                         if csv_item.is_visible(timeout=5000):
                             csv_item.click()
                         else:
@@ -408,18 +389,23 @@ def main():
             else:
                 page.screenshot(path=str(EXPORTS_DIR / 'debug_recent_video.png'))
                 print("  ⚠️ Export 버튼 없음 (스크린샷 저장됨)")
-
         browser.close()
 
-    # 5. stats 결정 (DOM 우선, CSV 폴백)
     if dom_stats.get('impressions', 0) > 0:
-        stats = {
-            'impressions': dom_stats['impressions'],
-            'ctr':         round(dom_stats['ctr'], 6),
-            'views':       0,
-        }
-        print(f"\n[5] DOM 추출 데이터 사용: impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}")
-    elif zip_path and os.path.exists(zip_path):
+        return make_metric_result(
+            status="ok",
+            video_id=video_id,
+            source="local_cdp",
+            metric_window="since_publish",
+            video_published_at=video_published_at,
+            observed_in_studio=True,
+            impressions=dom_stats['impressions'],
+            ctr=round(dom_stats['ctr'], 6),
+            reason="Metrics read from Studio DOM",
+        )
+    if collector_result.get("status") == "studio_layout_changed":
+        return collector_result
+    if zip_path and os.path.exists(zip_path):
         print(f"\n[5] ZIP 압축 해제: {os.path.basename(zip_path)}")
         with zipfile.ZipFile(zip_path, 'r') as zf:
             print(f"  내용: {zf.namelist()}")
@@ -427,26 +413,80 @@ def main():
         table_csv = str(EXPORTS_DIR / '표 데이터.csv')
         if not os.path.exists(table_csv):
             candidates = sorted(
-                [c for c in _glob.glob(str(EXPORTS_DIR / '*.csv'))
-                 if 'studio_reach_report' not in c],
-                key=os.path.getsize, reverse=True
+                [c for c in _glob.glob(str(EXPORTS_DIR / '*.csv')) if 'studio_reach_report' not in c],
+                key=os.path.getsize,
+                reverse=True,
             )
             if candidates:
                 table_csv = candidates[0]
         print(f"  CSV 파싱: {os.path.basename(table_csv)}")
         stats = _parse_csv(table_csv)
         print(f"  impressions={stats['impressions']:,}  ctr={stats['ctr']:.4f}")
-    else:
-        print("❌ 데이터 추출 실패 (DOM 파싱 + CSV 다운로드 모두 실패)")
-        sys.exit(1)
+        if stats['impressions'] > 0:
+            return make_metric_result(
+                status="ok",
+                video_id=video_id,
+                source="official_csv",
+                metric_window="since_publish",
+                video_published_at=video_published_at,
+                observed_in_studio=True,
+                impressions=stats["impressions"],
+                ctr=stats["ctr"],
+                reason="Metrics read from exported Studio CSV",
+            )
+        return make_metric_result(
+            status="metric_not_ready",
+            video_id=video_id,
+            source="official_csv",
+            metric_window="since_publish",
+            video_published_at=video_published_at,
+            observed_in_studio=False,
+            impressions=stats["impressions"],
+            ctr=stats["ctr"],
+            reason="CSV exported but metrics not populated yet",
+        )
+    return make_metric_result(
+        status="metric_not_ready",
+        video_id=video_id,
+        source="local_cdp",
+        metric_window="since_publish",
+        video_published_at=video_published_at,
+        observed_in_studio=False,
+        reason="CTR or impressions card not visible yet",
+    )
 
-    if stats['impressions'] == 0:
-        print("  ⚠️ impressions=0 — 데이터 없음 또는 파싱 오류. Sheets 업데이트 스킵.")
+
+# ── 메인 ─────────────────────────────────────────────────────────────────────
+
+def main():
+    os.makedirs(EXPORTS_DIR, exist_ok=True)
+
+    print("=" * 60)
+    print("최근 영상 '게시 이후' 통계 직접 갱신 v1.1")
+    print("=" * 60)
+
+    print("\n[1] _RawData_Master → 최근 보강 대상 조회...")
+    gc = _get_gspread_client()
+    video_id, upload_date, published_at = _get_latest_video_id(gc)
+
+    print(f"\n[2] Studio 영상 분석 진입 (게시 이후)...")
+    print(f"    video_id : {video_id}  |  upload_date : {upload_date}")
+
+    result = normalize_metric_result(
+        collect_recent_video_stats(video_id, video_published_at=published_at),
+        default_video_id=video_id,
+        default_source="local_cdp",
+    )
+    print(f"\n[5] 수집 결과: status={result['status']} | source={result['source']} | reason={result['reason']}")
+    if result.get("impressions") is not None:
+        print(f"  impressions={result['impressions']}  ctr={result['ctr']}")
+
+    if result["status"] not in {"ok", "partial"} or not result.get("impressions"):
+        print("  ⚠️ 수집 결과가 쓰기 조건을 만족하지 않음 — Sheets 업데이트 스킵.")
         sys.exit(0)
 
-    # 7. _RawData_Master 직접 업데이트
     print(f"\n[7] _RawData_Master 직접 업데이트...")
-    _update_master(gc, video_id, stats)
+    _write_recent_metrics(gc, result)
 
     print(f"\n✅ 완료")
 

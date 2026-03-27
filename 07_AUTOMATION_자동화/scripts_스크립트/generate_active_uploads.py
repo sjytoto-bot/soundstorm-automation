@@ -32,6 +32,12 @@ from pathlib import Path
 
 import gspread
 from google.oauth2.service_account import Credentials
+from recent_video_pipeline import (
+    make_metric_result,
+    normalize_metric_result,
+    resolve_metric_candidates,
+    write_metric_result,
+)
 
 # ── 경로 설정 ──────────────────────────────────────────────────────────────────
 _SCRIPT_DIR   = Path(__file__).parent
@@ -161,99 +167,41 @@ def writeback_ctr_to_master(gc, ctr_map: dict[str, dict]) -> bool:
     """
     targets = {
         vid: d for vid, d in ctr_map.items()
-        if d.get("ctr_source") == "csv" and d.get("ctr") is not None
+        if d.get("ctr_source") == "official_csv" and d.get("ctr") is not None
     }
     if not targets:
         return False
 
-    try:
-        ss = gc.open_by_key(SPREADSHEET_ID)
-        ws = ss.worksheet("_RawData_Master")
-    except Exception as e:
-        print(f"  ⚠️  _RawData_Master 열기 실패: {e}")
-        return False
-
-    try:
-        all_values = ws.get_all_values()
-    except Exception as e:
-        print(f"  ⚠️  _RawData_Master 읽기 실패: {e}")
-        return False
-
-    if not all_values:
-        return False
-
-    header = [h.strip() for h in all_values[0]]
-
-    try:
-        vid_col = header.index("video_id")
-        imp_col = header.index("impressions")
-        ctr_col = header.index("ctr")
-    except ValueError as e:
-        print(f"  ⚠️  _RawData_Master 필수 컬럼 없음: {e}")
-        return False
-
-    # 선택 컬럼 (없어도 실패 안 함)
-    src_col = header.index("ctr_source")      if "ctr_source"      in header else -1
-    upd_col = header.index("ctr_updated_at")  if "ctr_updated_at"  in header else -1
-
-    if src_col == -1:
-        print("  ℹ️  ctr_source 컬럼 없음 — 출처 기록 스킵 (_RawData_Master에 컬럼 추가 권장)")
-    if upd_col == -1:
-        print("  ℹ️  ctr_updated_at 컬럼 없음 — 타임스탬프 기록 스킵")
-
-    now_str = _now_kst().strftime("%Y-%m-%dT%H:%M:%S+09:00")
     dirty = False
 
-    for row_idx, row in enumerate(all_values[1:], start=2):
-        vid = row[vid_col].strip() if vid_col < len(row) else ""
-        if vid not in targets:
+    for vid, d in targets.items():
+        payload = make_metric_result(
+            status="ok",
+            video_id=vid,
+            source="official_csv",
+            metric_window="since_publish",
+            impressions=d.get("impressions"),
+            ctr=d.get("ctr"),
+            observed_in_studio=True,
+            reason="Metrics parsed from recent Studio CSV",
+        )
+        try:
+            summary = write_metric_result(gc, SPREADSHEET_ID, "_RawData_Master", payload)
+        except Exception as e:
+            print(f"  ⚠️  write-back 실패 ({vid}): {e}")
             continue
 
-        d = targets[vid]
-        cur_imp = row[imp_col].strip() if imp_col < len(row) else ""
-        cur_ctr = row[ctr_col].strip() if ctr_col < len(row) else ""
-
-        imp_updated = ctr_updated = False
-
-        # impressions: 비어있거나 0이면 갱신
-        if not cur_imp or cur_imp in ("0", "0.0"):
-            try:
-                ws.update_cell(row_idx, imp_col + 1, d["impressions"] or 0)
-                imp_updated = True
-            except Exception as e:
-                print(f"  ⚠️  impressions write 실패 ({vid}): {e}")
-
-        # ctr: 비어있거나 0이면 갱신
-        if not cur_ctr or cur_ctr in ("0", "0.0"):
-            try:
-                ws.update_cell(row_idx, ctr_col + 1, round(d["ctr"], 6))
-                ctr_updated = True
-            except Exception as e:
-                print(f"  ⚠️  ctr write 실패 ({vid}): {e}")
-
-        # 출처 + 타임스탬프 (변경 여부 무관하게, 컬럼 있으면 항상 기록)
-        if src_col != -1:
-            try:
-                ws.update_cell(row_idx, src_col + 1, "csv_recent")
-            except Exception as e:
-                print(f"  ⚠️  ctr_source write 실패 ({vid}): {e}")
-
-        if upd_col != -1:
-            try:
-                ws.update_cell(row_idx, upd_col + 1, now_str)
-            except Exception as e:
-                print(f"  ⚠️  ctr_updated_at write 실패 ({vid}): {e}")
-
-        if imp_updated or ctr_updated:
+        if summary["wrote"]:
             dirty = True
             print(
                 f"  ✅ write-back: {vid}"
-                + (f" | impressions={d['impressions']}" if imp_updated else "")
-                + (f" | ctr={d['ctr']*100:.2f}%" if ctr_updated else "")
-                + f" | source=csv_recent | at={now_str}"
+                f" | impressions={payload['impressions']}"
+                f" | ctr={payload['ctr']*100:.2f}%"
+                f" | source=official_csv"
+                f" | at={payload['captured_at']}"
             )
         else:
-            print(f"  ℹ️  {vid}: impressions/ctr 이미 채워짐 — source/timestamp만 갱신")
+            print(f"  ℹ️  {vid}: write 스킵 — {summary['reason']}")
 
     return dirty
 
@@ -282,7 +230,15 @@ def run_video_diagnostics_engine() -> None:
 
 def fetch_ctr_from_master(gc, video_ids: list[str]) -> dict[str, dict]:
     """_RawData_Master에서 impressions / ctr 취득. source = 'sheets'."""
-    result = {vid: {"impressions": None, "ctr": None, "ctr_source": "missing"} for vid in video_ids}
+    result = {
+        vid: {
+            "impressions": None,
+            "ctr": None,
+            "ctr_source": "missing",
+            "captured_at": None,
+        }
+        for vid in video_ids
+    }
     try:
         ss       = gc.open_by_key(SPREADSHEET_ID)
         ws       = ss.worksheet("_RawData_Master")
@@ -303,7 +259,12 @@ def fetch_ctr_from_master(gc, video_ids: list[str]) -> dict[str, dict]:
                 ctr = None
 
             if imp > 0 or (ctr is not None and ctr > 0):
-                result[vid] = {"impressions": imp, "ctr": ctr, "ctr_source": "sheets"}
+                result[vid] = {
+                    "impressions": imp,
+                    "ctr": ctr,
+                    "ctr_source": str(row.get("ctr_source") or "inferred_csv"),
+                    "captured_at": row.get("ctr_updated_at"),
+                }
             # imp==0, ctr==0/None → source 유지 "missing"
     except Exception as e:
         print(f"  ⚠️  _RawData_Master CTR 읽기 실패: {e}")
@@ -312,7 +273,15 @@ def fetch_ctr_from_master(gc, video_ids: list[str]) -> dict[str, dict]:
 
 def read_recent_csv_ctr(video_ids: list[str]) -> dict[str, dict]:
     """studio_reach_report_recent.csv에서 impressions / ctr 추출. source = 'csv'."""
-    result = {vid: {"impressions": None, "ctr": None, "ctr_source": "missing"} for vid in video_ids}
+    result = {
+        vid: {
+            "impressions": None,
+            "ctr": None,
+            "ctr_source": "missing",
+            "captured_at": None,
+        }
+        for vid in video_ids
+    }
     if not _RECENT_CSV.exists():
         return result
 
@@ -355,12 +324,58 @@ def read_recent_csv_ctr(video_ids: list[str]) -> dict[str, dict]:
                     pass
 
                 if imp > 0 or (ctr is not None and ctr > 0):
-                    result[vid] = {"impressions": imp, "ctr": ctr, "ctr_source": "csv"}
+                    result[vid] = {
+                        "impressions": imp,
+                        "ctr": ctr,
+                        "ctr_source": "official_csv",
+                        "captured_at": _now_kst().astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    }
 
         print(f"  recent CSV 파싱 완료: {_RECENT_CSV.name}")
     except Exception as e:
         print(f"  ⚠️  recent CSV 읽기 실패: {e}")
     return result
+
+
+def resolve_ctr_sources(video_ids: list[str], recent_map: dict[str, dict], master_map: dict[str, dict]) -> dict[str, dict]:
+    resolved = {}
+    for vid in video_ids:
+        candidates = [
+            normalize_metric_result(
+                {
+                    "status": "ok" if recent_map.get(vid, {}).get("ctr_source") != "missing" else "not_found",
+                    "video_id": vid,
+                    "impressions": recent_map.get(vid, {}).get("impressions"),
+                    "ctr": recent_map.get(vid, {}).get("ctr"),
+                    "source": recent_map.get(vid, {}).get("ctr_source") or "official_csv",
+                    "captured_at": recent_map.get(vid, {}).get("captured_at"),
+                    "reason": "recent csv candidate",
+                },
+                default_video_id=vid,
+                default_source="official_csv",
+            ),
+            normalize_metric_result(
+                {
+                    "status": "ok" if master_map.get(vid, {}).get("ctr_source") != "missing" else "not_found",
+                    "video_id": vid,
+                    "impressions": master_map.get(vid, {}).get("impressions"),
+                    "ctr": master_map.get(vid, {}).get("ctr"),
+                    "source": master_map.get(vid, {}).get("ctr_source") or "inferred_csv",
+                    "captured_at": master_map.get(vid, {}).get("captured_at"),
+                    "reason": "master candidate",
+                },
+                default_video_id=vid,
+                default_source="inferred_csv",
+            ),
+        ]
+        winner = resolve_metric_candidates(candidates)
+        resolved[vid] = {
+            "impressions": winner.get("impressions"),
+            "ctr": winner.get("ctr"),
+            "ctr_source": winner.get("source") or "missing",
+            "captured_at": winner.get("captured_at"),
+        }
+    return resolved
 
 
 # ── CSV 다운로드 ───────────────────────────────────────────────────────────────
@@ -374,7 +389,7 @@ def run_csv_download() -> bool:
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
-        if s.connect_ex(("localhost", 9222)) != 0:
+        if s.connect_ex(("127.0.0.1", 9222)) != 0:
             print("  ⚠️  CDP 포트 9222 닫혀있음 — CSV 스킵 (Chrome 미실행)")
             return False
 
@@ -520,11 +535,16 @@ def main():
 
     # ── 4. CTR 취득 ───────────────────────────────────────────────────────────
     print("\n[3/4] CTR 데이터 취득...")
+    master_map = fetch_ctr_from_master(gc, video_ids)
     if _RECENT_CSV.exists():
-        ctr_map = read_recent_csv_ctr(video_ids)
+        recent_map = read_recent_csv_ctr(video_ids)
     else:
         print("  recent CSV 없음 — _RawData_Master 폴백")
-        ctr_map = fetch_ctr_from_master(gc, video_ids)
+        recent_map = {
+            vid: {"impressions": None, "ctr": None, "ctr_source": "missing", "captured_at": None}
+            for vid in video_ids
+        }
+    ctr_map = resolve_ctr_sources(video_ids, recent_map, master_map)
 
     # ── CSV CTR → _RawData_Master write-back ──────────────────────────────────
     print("\n  [write-back] CSV CTR → _RawData_Master...")
@@ -534,7 +554,7 @@ def main():
     for vid, d in ctr_map.items():
         ctr_disp = f"{d['ctr']*100:.1f}%" if d['ctr'] is not None else "null"
         print(f"  {vid}: impressions={d['impressions']}, ctr={ctr_disp}, source={d['ctr_source']}")
-        if d["ctr_source"] == "csv" and d["ctr"] is not None:
+        if d["ctr_source"] == "official_csv" and d["ctr"] is not None:
             if vid not in state:
                 state[vid] = {}
             state[vid]["csv_synced"] = True
